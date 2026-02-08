@@ -16,6 +16,8 @@ logger = get_logger(__name__)
 class HttpClientConfig(ToolConfig):
     """Konfiguration für HttpClient."""
 
+    name: str = "http_client"
+    description: str = "Führt HTTP-Anfragen aus (GET, POST, PUT, DELETE)"
     timeout: int = 30
     max_redirects: int = 5
     verify_ssl: bool = True

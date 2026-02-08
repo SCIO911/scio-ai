@@ -21,6 +21,8 @@ logger = get_logger(__name__)
 class PythonExecutorConfig(ToolConfig):
     """Konfiguration für PythonExecutor."""
 
+    name: str = "python_executor"
+    description: str = "Führt Python-Code sicher in einer Sandbox aus"
     timeout_seconds: int = 30
     max_output_length: int = 10000
     allowed_imports: list[str] = [

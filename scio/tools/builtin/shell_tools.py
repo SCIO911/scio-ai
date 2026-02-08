@@ -20,6 +20,8 @@ logger = get_logger(__name__)
 class ShellConfig(ToolConfig):
     """Konfiguration für Shell Tool."""
 
+    name: str = "shell"
+    description: str = "Führt Shell-Kommandos aus (eingeschränkte Befehle)"
     timeout_seconds: int = 60
     max_output_length: int = 50000
     allowed_commands: list[str] = [

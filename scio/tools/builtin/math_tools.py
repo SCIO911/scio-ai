@@ -17,6 +17,8 @@ logger = get_logger(__name__)
 class MathConfig(ToolConfig):
     """Konfiguration für Math Tool."""
 
+    name: str = "math"
+    description: str = "Führt mathematische Berechnungen durch"
     precision: int = 10
 
 

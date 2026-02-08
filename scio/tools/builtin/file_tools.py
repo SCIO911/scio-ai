@@ -20,6 +20,8 @@ logger = get_logger(__name__)
 class FileReaderConfig(ToolConfig):
     """Konfiguration für FileReader."""
 
+    name: str = "file_reader"
+    description: str = "Liest Dateien und gibt deren Inhalt zurück"
     allowed_extensions: list[str] = [".txt", ".json", ".yaml", ".yml", ".csv", ".md"]
     max_file_size_mb: int = 50
     encoding: str = "utf-8"
@@ -99,6 +101,8 @@ class FileReaderTool(Tool[dict[str, Any], dict[str, Any]]):
 class FileWriterConfig(ToolConfig):
     """Konfiguration für FileWriter."""
 
+    name: str = "file_writer"
+    description: str = "Schreibt Inhalte in Dateien"
     allowed_extensions: list[str] = [".txt", ".json", ".yaml", ".yml", ".csv", ".md"]
     create_dirs: bool = True
     overwrite: bool = False
