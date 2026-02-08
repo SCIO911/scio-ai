@@ -18,12 +18,30 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db():
-    """Dependency für Database Session"""
+    """Dependency für Database Session (Generator für FastAPI)"""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def get_session():
+    """
+    Direct database session getter (non-generator)
+
+    Usage:
+        session = get_session()
+        try:
+            result = session.execute(text("SELECT 1"))
+            session.commit()
+        finally:
+            session.close()
+
+    Returns:
+        Session: SQLAlchemy session instance
+    """
+    return SessionLocal()
 
 
 def init_db():
@@ -36,4 +54,4 @@ from .job import Job
 from .api_key import APIKey
 from .earnings import Earning
 
-__all__ = ['Base', 'engine', 'SessionLocal', 'get_db', 'init_db', 'Job', 'APIKey', 'Earning']
+__all__ = ['Base', 'engine', 'SessionLocal', 'get_db', 'get_session', 'init_db', 'Job', 'APIKey', 'Earning']

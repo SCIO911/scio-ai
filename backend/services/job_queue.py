@@ -459,6 +459,11 @@ class JobQueue:
         return self._queue.qsize()
 
     @property
+    def is_running(self) -> bool:
+        """Returns whether the job queue is actively processing"""
+        return self._running
+
+    @property
     def active_job_count(self) -> int:
         """Anzahl aktiver Jobs"""
         with self._lock:

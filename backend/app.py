@@ -47,6 +47,9 @@ from backend.routes.autonomy import autonomy_bp
 from backend.routes.ai_modules import ai_bp
 from backend.routes.capabilities import caps_bp
 from backend.routes.orchestration import orch_bp
+from backend.routes.stats import stats_bp
+from backend.routes.openapi import openapi_bp
+from backend.routes.config_api import config_api_bp
 
 # Load .env
 load_dotenv(Config.BASE_DIR / '.env')
@@ -130,15 +133,53 @@ def start_request_tracing():
 
 @app.after_request
 def complete_request_tracing(response):
-    """Komplettiert Request-Tracing und Audit-Logging"""
+    """Komplettiert Request-Tracing, Audit-Logging und Prometheus-Metriken"""
     # Request-ID in Response-Header
     response.headers['X-Request-ID'] = getattr(g, 'request_id', 'unknown')
 
     # Request-Dauer berechnen
     duration_ms = 0
+    duration_s = 0
     if hasattr(g, 'request_start'):
-        duration_ms = (time.time() - g.request_start) * 1000
+        duration_s = time.time() - g.request_start
+        duration_ms = duration_s * 1000
     response.headers['X-Response-Time'] = f"{duration_ms:.2f}ms"
+
+    # Prometheus Metriken
+    try:
+        from backend.monitoring.prometheus_exporter import get_metrics
+        metrics = get_metrics()
+
+        # Request Counter
+        endpoint = request.path.split('?')[0][:50]  # Limit length
+        metrics.requests_total.inc(
+            method=request.method,
+            endpoint=endpoint,
+            status=str(response.status_code)
+        )
+
+        # Request Duration Histogram
+        if duration_s > 0:
+            metrics.request_duration.observe(
+                duration_s,
+                method=request.method,
+                endpoint=endpoint
+            )
+
+        # Error Counter
+        if response.status_code >= 400:
+            error_type = "client_error" if response.status_code < 500 else "server_error"
+            metrics.request_errors.inc(
+                method=request.method,
+                endpoint=endpoint,
+                error_type=error_type
+            )
+
+        # Rate Limit Counter
+        if response.status_code == 429:
+            metrics.rate_limit_hits.inc()
+    except Exception:
+        pass  # Metrics sollten nie Request blockieren
 
     # Audit-Log für API-Requests
     if request.path.startswith('/api/'):
@@ -249,6 +290,41 @@ def startup_probe():
 
 
 # ===================================================================
+# PROMETHEUS METRICS ENDPOINT
+# ===================================================================
+
+@app.route('/metrics')
+@app.route('/api/metrics')
+def prometheus_metrics():
+    """
+    Prometheus Metrics Endpoint
+
+    Exportiert alle SCIO-Metriken im Prometheus-Text-Format:
+    - Job Queue: scio_jobs_queued, scio_jobs_active, scio_jobs_total
+    - Hardware: scio_gpu_*, scio_cpu_*, scio_ram_*
+    - API: scio_requests_total, scio_request_duration_seconds
+    - Decision: scio_decisions_total, scio_decision_confidence
+    - Learning: scio_learning_*, scio_rl_rewards
+    - Orchestrator: scio_modules_*, scio_events_*, scio_workflows_*
+
+    Usage:
+        curl http://localhost:5000/metrics
+
+    Prometheus scrape config:
+        - job_name: 'scio'
+          static_configs:
+            - targets: ['localhost:5000']
+    """
+    from flask import Response
+    from backend.monitoring.prometheus_exporter import get_metrics
+
+    metrics = get_metrics()
+    output = metrics.export()
+
+    return Response(output, mimetype='text/plain; version=0.0.4; charset=utf-8')
+
+
+# ===================================================================
 # GRACEFUL SHUTDOWN
 # ===================================================================
 
@@ -345,6 +421,9 @@ app.register_blueprint(autonomy_bp, url_prefix='/api/autonomy')  # Selbst-Progra
 app.register_blueprint(ai_bp)  # AI Modules (Decision, Learning, Planning, Knowledge, Agents, Monitoring)
 app.register_blueprint(caps_bp)  # Capabilities (100.000+ Tools)
 app.register_blueprint(orch_bp)  # Orchestration (Event Bus, Workflows, Coordination)
+app.register_blueprint(stats_bp)  # Dashboard Stats API
+app.register_blueprint(openapi_bp)  # OpenAPI/Swagger Documentation
+app.register_blueprint(config_api_bp)  # Runtime Configuration API
 
 
 # ===================================================================
@@ -602,6 +681,160 @@ def handle_subscribe_jobs():
 
     # Send current stats
     emit('jobs_stats', queue.get_stats())
+
+
+@socketio.on('subscribe_stats')
+def handle_subscribe_stats():
+    """Subscribe to Real-Time Stats Updates"""
+    from backend.routes.stats import get_realtime_stats
+
+    # Send initial stats
+    emit('stats_update', get_realtime_stats())
+
+
+@socketio.on('subscribe_system')
+def handle_subscribe_system():
+    """
+    Subscribe to System Events
+
+    Events:
+    - module_status: Status-Änderungen von Modulen
+    - error_occurred: System-Fehler
+    - warning: Warnungen (Degradation, etc.)
+    """
+    from backend.orchestration.event_bus import get_event_bus, EventType
+
+    event_bus = get_event_bus()
+
+    def on_system_event(event):
+        socketio.emit('system_event', {
+            'type': event.type.value,
+            'source': event.source,
+            'data': event.data,
+            'timestamp': event.timestamp.isoformat()
+        }, room=request.sid)
+
+    # Subscribe to system events
+    event_bus.subscribe(EventType.SYSTEM_ERROR, on_system_event)
+    event_bus.subscribe(EventType.SYSTEM_HEALTH, on_system_event)
+
+    emit('subscribed', {'channel': 'system'})
+
+
+@socketio.on('subscribe_decisions')
+def handle_subscribe_decisions():
+    """
+    Subscribe to Decision Engine Events
+
+    Events:
+    - decision_made: Eine Entscheidung wurde getroffen
+    - decision_stats: Statistik-Updates (periodisch)
+    """
+    from backend.orchestration.event_bus import get_event_bus, EventType
+
+    event_bus = get_event_bus()
+
+    def on_decision_event(event):
+        socketio.emit('decision_event', {
+            'type': event.type.value,
+            'data': event.data,
+            'timestamp': event.timestamp.isoformat()
+        }, room=request.sid)
+
+    event_bus.subscribe(EventType.DECISION_MADE, on_decision_event)
+    event_bus.subscribe(EventType.DECISION_FEEDBACK, on_decision_event)
+
+    # Send current stats
+    try:
+        from backend.decision import get_decision_engine
+        engine = get_decision_engine()
+        emit('decision_stats', engine.get_statistics())
+    except Exception:
+        pass
+
+    emit('subscribed', {'channel': 'decisions'})
+
+
+@socketio.on('subscribe_learning')
+def handle_subscribe_learning():
+    """
+    Subscribe to Learning Module Events
+
+    Events:
+    - learning_observation: Neue Beobachtung
+    - learning_update: Modell-Update
+    - reward_calculated: Reward berechnet
+    """
+    from backend.orchestration.event_bus import get_event_bus, EventType
+
+    event_bus = get_event_bus()
+
+    def on_learning_event(event):
+        socketio.emit('learning_event', {
+            'type': event.type.value,
+            'data': event.data,
+            'timestamp': event.timestamp.isoformat()
+        }, room=request.sid)
+
+    event_bus.subscribe(EventType.LEARNING_OBSERVATION, on_learning_event)
+    event_bus.subscribe(EventType.LEARNING_UPDATE, on_learning_event)
+    event_bus.subscribe(EventType.REWARD_CALCULATED, on_learning_event)
+
+    # Send current stats
+    try:
+        from backend.learning import get_rl_agent
+        agent = get_rl_agent()
+        emit('learning_stats', agent.get_statistics())
+    except Exception:
+        pass
+
+    emit('subscribed', {'channel': 'learning'})
+
+
+@socketio.on('subscribe_workflows')
+def handle_subscribe_workflows():
+    """
+    Subscribe to Workflow Events
+
+    Events:
+    - plan_created: Workflow erstellt
+    - plan_step_started: Step gestartet
+    - plan_step_completed: Step abgeschlossen
+    - plan_completed: Workflow abgeschlossen
+    - plan_failed: Workflow fehlgeschlagen
+    """
+    from backend.orchestration.event_bus import get_event_bus, EventType
+
+    event_bus = get_event_bus()
+
+    def on_workflow_event(event):
+        socketio.emit('workflow_event', {
+            'type': event.type.value,
+            'data': event.data,
+            'timestamp': event.timestamp.isoformat()
+        }, room=request.sid)
+
+    event_bus.subscribe(EventType.PLAN_CREATED, on_workflow_event)
+    event_bus.subscribe(EventType.PLAN_STEP_STARTED, on_workflow_event)
+    event_bus.subscribe(EventType.PLAN_STEP_COMPLETED, on_workflow_event)
+    event_bus.subscribe(EventType.PLAN_COMPLETED, on_workflow_event)
+    event_bus.subscribe(EventType.PLAN_FAILED, on_workflow_event)
+
+    emit('subscribed', {'channel': 'workflows'})
+
+
+@socketio.on('subscribe_all')
+def handle_subscribe_all():
+    """Subscribe to all event channels"""
+    handle_subscribe_hardware()
+    handle_subscribe_jobs()
+    handle_subscribe_stats()
+    handle_subscribe_system()
+    handle_subscribe_decisions()
+    handle_subscribe_learning()
+    handle_subscribe_workflows()
+
+    emit('subscribed', {'channel': 'all'})
 
 
 # ===================================================================
@@ -889,9 +1122,13 @@ def _register_health_checks():
     def check_database():
         try:
             from backend.models import get_session
+            from sqlalchemy import text
             session = get_session()
-            session.execute("SELECT 1")
-            return True
+            try:
+                session.execute(text("SELECT 1"))
+                return True
+            finally:
+                session.close()
         except Exception:
             return False
 
@@ -1055,6 +1292,10 @@ def print_banner():
     print("   [AI] http://localhost:5000/api/ai                AI Modules API")
     print("   [CAPS] http://localhost:5000/api/capabilities      100.000+ Tools")
     print("   [ORCH] http://localhost:5000/api/orchestration     Orchestration API")
+    print("   [STATS] http://localhost:5000/api/stats            Dashboard Stats")
+    print("   [PROM] http://localhost:5000/metrics               Prometheus Metrics")
+    print("   [DOCS] http://localhost:5000/api/docs              Swagger UI")
+    print("   [CONF] http://localhost:5000/api/config            Runtime Config")
     print("=" * 70)
     print(f"\n[NET] Server: http://localhost:{Config.PORT}")
     print("[AUTO] System laeuft vollautomatisch - keine manuellen Eingriffe noetig!")

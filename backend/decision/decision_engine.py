@@ -31,7 +31,7 @@ class DecisionType(str, Enum):
 class DecisionNode:
     """Knoten im Entscheidungsbaum"""
     id: str
-    condition: str  # Python-Ausdruck oder Funktion
+    condition: Optional[str] = None  # Python-Ausdruck (optional für Leaf-Nodes)
     true_branch: Optional[str] = None  # ID des nächsten Knotens
     false_branch: Optional[str] = None
     action: Optional[str] = None  # Aktion wenn Blattknoten
@@ -85,6 +85,11 @@ class DecisionTree:
             if node.action:
                 reasoning.append(f"→ Action: {node.action}")
                 return node.action, reasoning
+
+            # Leaf-Node ohne Condition und ohne Action
+            if not node.condition:
+                reasoning.append(f"→ Leaf node {node.id} (no action)")
+                return "no_action", reasoning
 
             # Bedingung sicher evaluieren (kein eval!)
             try:
