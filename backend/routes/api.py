@@ -7,8 +7,10 @@ OpenAI-kompatible Inference API + Custom Endpoints
 import time
 import uuid
 import json
+import logging
 from datetime import datetime
 from functools import wraps
+from typing import Tuple, Any, Optional
 
 from flask import request, jsonify, Response, stream_with_context
 
@@ -20,6 +22,60 @@ from backend.services.hardware_monitor import get_hardware_monitor
 from backend.models.job import JobType
 from backend.workers.llm_inference import get_inference_worker
 from backend.workers.image_gen import get_image_worker
+
+logger = logging.getLogger(__name__)
+
+# Validation constants
+MAX_TOKENS_LIMIT = 32768  # Maximum allowed tokens
+MIN_TOKENS = 1
+MAX_IMAGES_PER_REQUEST = 4
+ALLOWED_IMAGE_SIZES = {
+    '256x256', '512x512', '768x768', '1024x1024', '1024x1792', '1792x1024'
+}
+MAX_IMAGE_DIMENSION = 2048
+MIN_IMAGE_DIMENSION = 256
+
+
+def validate_positive_int(value: Any, default: int, min_val: int = 1, max_val: int = None) -> int:
+    """Validates and converts value to positive integer within bounds."""
+    try:
+        result = int(value)
+        if result < min_val:
+            return default
+        if max_val is not None and result > max_val:
+            return max_val
+        return result
+    except (ValueError, TypeError):
+        return default
+
+
+def validate_float_range(value: Any, default: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
+    """Validates and converts value to float within bounds."""
+    try:
+        result = float(value)
+        return max(min_val, min(max_val, result))
+    except (ValueError, TypeError):
+        return default
+
+
+def validate_image_size(size: str) -> Tuple[int, int]:
+    """Validates and parses image size string, returns (width, height)."""
+    if size in ALLOWED_IMAGE_SIZES:
+        width, height = map(int, size.split('x'))
+        return width, height
+
+    # Try to parse custom size with validation
+    try:
+        parts = size.split('x')
+        if len(parts) != 2:
+            return 1024, 1024
+        width, height = int(parts[0]), int(parts[1])
+        # Clamp to allowed range
+        width = max(MIN_IMAGE_DIMENSION, min(MAX_IMAGE_DIMENSION, width))
+        height = max(MIN_IMAGE_DIMENSION, min(MAX_IMAGE_DIMENSION, height))
+        return width, height
+    except (ValueError, AttributeError):
+        return 1024, 1024
 
 
 def require_api_key(f):
@@ -95,13 +151,38 @@ def chat_completions():
 
         model = data.get('model', 'mistral-7b')
         messages = data.get('messages', [])
-        max_tokens = int(data.get('max_tokens', Config.MAX_NEW_TOKENS))
-        temperature = float(data.get('temperature', 0.7))
-        top_p = float(data.get('top_p', 0.9))
+
+        # Validate parameters with bounds checking
+        max_tokens = validate_positive_int(
+            data.get('max_tokens', Config.MAX_NEW_TOKENS),
+            default=Config.MAX_NEW_TOKENS,
+            min_val=MIN_TOKENS,
+            max_val=MAX_TOKENS_LIMIT
+        )
+        temperature = validate_float_range(
+            data.get('temperature', 0.7),
+            default=0.7,
+            min_val=0.0,
+            max_val=2.0
+        )
+        top_p = validate_float_range(
+            data.get('top_p', 0.9),
+            default=0.9,
+            min_val=0.0,
+            max_val=1.0
+        )
         stream = bool(data.get('stream', False))
 
         if not messages:
             return jsonify({'error': 'messages required'}), 400
+
+        # Validate messages format
+        if not isinstance(messages, list):
+            return jsonify({'error': 'messages must be an array'}), 400
+
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                return jsonify({'error': 'Each message must have role and content'}), 400
 
         # Check if model is allowed for this key
         key_info = request.key_info
@@ -213,8 +294,8 @@ def chat_completions():
             return jsonify(response)
 
     except Exception as e:
-        print(f"[ERROR] Chat Completion Error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.exception("Chat Completion Error")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @api_bp.route('/models', methods=['GET'])
@@ -263,18 +344,29 @@ def generate_images():
 
         model = data.get('model', 'sdxl')
         prompt = data.get('prompt', '')
-        n = min(int(data.get('n', 1)), 4)
-        size = str(data.get('size', '1024x1024'))
         negative_prompt = data.get('negative_prompt', '')
+
+        # Validate number of images
+        n = validate_positive_int(
+            data.get('n', 1),
+            default=1,
+            min_val=1,
+            max_val=MAX_IMAGES_PER_REQUEST
+        )
+
+        # Validate and parse size
+        size = str(data.get('size', '1024x1024'))
+        width, height = validate_image_size(size)
 
         if not prompt:
             return jsonify({'error': 'prompt required'}), 400
 
-        # Parse size
-        try:
-            width, height = map(int, size.split('x'))
-        except (ValueError, AttributeError):
-            width, height = 1024, 1024
+        # Validate prompt length to prevent abuse
+        if len(prompt) > 4000:
+            return jsonify({'error': 'prompt too long (max 4000 characters)'}), 400
+
+        if len(negative_prompt) > 2000:
+            return jsonify({'error': 'negative_prompt too long (max 2000 characters)'}), 400
 
         worker = get_image_worker()
         if not worker.initialize():
@@ -307,8 +399,8 @@ def generate_images():
         })
 
     except Exception as e:
-        print(f"[ERROR] Image Generation Error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.exception("Image Generation Error")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -361,8 +453,8 @@ def create_job():
         })
 
     except Exception as e:
-        print(f"[ERROR] Create Job Error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.exception("Create Job Error")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @api_bp.route('/jobs/<job_id>', methods=['GET'])

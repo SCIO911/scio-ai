@@ -15,8 +15,9 @@ import uuid
 import time
 import threading
 import logging
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Optional, Callable, List, Dict, Any
+from typing import Optional, Callable, List, Dict, Any, Generator
 from queue import PriorityQueue, Empty
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -28,6 +29,23 @@ from backend.config import Config
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def get_db_session() -> Generator[Session, None, None]:
+    """
+    Context manager for database sessions.
+    Ensures proper cleanup and rollback on errors.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 @dataclass(order=True)
@@ -70,24 +88,23 @@ class JobQueue:
     def _load_pending_jobs(self):
         """Lädt ausstehende Jobs aus der Datenbank"""
         try:
-            db = SessionLocal()
-            pending_jobs = db.query(Job).filter(
-                Job.status.in_([JobStatus.PENDING, JobStatus.QUEUED])
-            ).order_by(Job.priority.desc(), Job.created_at).all()
+            with get_db_session() as db:
+                pending_jobs = db.query(Job).filter(
+                    Job.status.in_([JobStatus.PENDING, JobStatus.QUEUED])
+                ).order_by(Job.priority.desc(), Job.created_at).all()
 
-            for job in pending_jobs:
-                self._queue.put(QueuedJob(
-                    priority=-job.priority,  # Negative for max-priority behavior
-                    created_at=job.created_at.timestamp(),
-                    job_id=job.job_id,
-                    job_type=job.job_type,
-                    input_data=job.input_data or {},
-                ))
+                for job in pending_jobs:
+                    self._queue.put(QueuedJob(
+                        priority=-job.priority,  # Negative for max-priority behavior
+                        created_at=job.created_at.timestamp(),
+                        job_id=job.job_id,
+                        job_type=job.job_type,
+                        input_data=job.input_data or {},
+                    ))
 
-            db.close()
-            print(f"[OK] {len(pending_jobs)} ausstehende Jobs geladen")
+                logger.info(f"{len(pending_jobs)} ausstehende Jobs geladen")
         except Exception as e:
-            print(f"[WARN]  Jobs laden fehlgeschlagen: {e}")
+            logger.warning(f"Jobs laden fehlgeschlagen: {e}")
 
     def register_worker(self, job_type: JobType, worker_func: Callable):
         """
@@ -139,23 +156,22 @@ class JobQueue:
         job_id = f"job_{uuid.uuid4().hex[:16]}"
 
         # Save to database
-        db = SessionLocal()
         try:
-            job = Job(
-                job_id=job_id,
-                order_id=order_id,
-                job_type=job_type,
-                status=JobStatus.QUEUED,
-                priority=priority,
-                user_email=user_email,
-                api_key_id=api_key_id,
-                input_data=input_data,
-                max_retries=Config.MAX_RETRIES,
-            )
-            db.add(job)
-            db.commit()
+            with get_db_session() as db:
+                job = Job(
+                    job_id=job_id,
+                    order_id=order_id,
+                    job_type=job_type,
+                    status=JobStatus.QUEUED,
+                    priority=priority,
+                    user_email=user_email,
+                    api_key_id=api_key_id,
+                    input_data=input_data,
+                    max_retries=Config.MAX_RETRIES,
+                )
+                db.add(job)
 
-            # Add to queue
+            # Add to queue (after successful DB commit)
             self._queue.put(QueuedJob(
                 priority=-priority,
                 created_at=time.time(),
@@ -164,28 +180,22 @@ class JobQueue:
                 input_data=input_data,
             ))
 
-            print(f"[JOB] Job erstellt: {job_id} ({job_type.value})")
+            logger.info(f"Job erstellt: {job_id} ({job_type.value})")
             self._notify('job_created', job_id, {'job_type': job_type.value})
 
             return job_id
 
         except Exception as e:
-            db.rollback()
-            print(f"[ERROR] Job erstellen fehlgeschlagen: {e}")
+            logger.error(f"Job erstellen fehlgeschlagen: {e}")
             raise
-        finally:
-            db.close()
 
     def get_job(self, job_id: str) -> Optional[dict]:
         """Gibt Job-Informationen zurück"""
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             job = db.query(Job).filter(Job.job_id == job_id).first()
             if job:
                 return job.to_dict()
             return None
-        finally:
-            db.close()
 
     def get_jobs(
         self,
@@ -195,8 +205,7 @@ class JobQueue:
         limit: int = 100,
     ) -> List[dict]:
         """Gibt gefilterte Jobs zurück"""
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             query = db.query(Job)
 
             if status:
@@ -208,50 +217,43 @@ class JobQueue:
 
             jobs = query.order_by(Job.created_at.desc()).limit(limit).all()
             return [job.to_dict() for job in jobs]
-        finally:
-            db.close()
 
     def cancel_job(self, job_id: str) -> bool:
         """Bricht Job ab"""
-        db = SessionLocal()
         try:
-            job = db.query(Job).filter(Job.job_id == job_id).first()
-            if not job:
+            with get_db_session() as db:
+                job = db.query(Job).filter(Job.job_id == job_id).first()
+                if not job:
+                    return False
+
+                if job.status in [JobStatus.PENDING, JobStatus.QUEUED]:
+                    job.status = JobStatus.CANCELLED
+                    job.completed_at = datetime.utcnow()
+                    logger.info(f"Job abgebrochen: {job_id}")
+                    self._notify('job_cancelled', job_id)
+                    return True
+
                 return False
-
-            if job.status in [JobStatus.PENDING, JobStatus.QUEUED]:
-                job.status = JobStatus.CANCELLED
-                job.completed_at = datetime.utcnow()
-                db.commit()
-                print(f"[BLOCKED] Job abgebrochen: {job_id}")
-                self._notify('job_cancelled', job_id)
-                return True
-
-            return False
         except Exception as e:
-            db.rollback()
-            print(f"[ERROR] Job abbrechen fehlgeschlagen: {e}")
+            logger.error(f"Job abbrechen fehlgeschlagen: {e}")
             return False
-        finally:
-            db.close()
 
     def _execute_job(self, queued_job: QueuedJob):
         """Führt einen Job aus"""
         job_id = queued_job.job_id
         job_type = queued_job.job_type.value
 
-        db = SessionLocal()
         try:
             # Update status to running
-            job = db.query(Job).filter(Job.job_id == job_id).first()
-            if not job or job.status == JobStatus.CANCELLED:
-                return
+            with get_db_session() as db:
+                job = db.query(Job).filter(Job.job_id == job_id).first()
+                if not job or job.status == JobStatus.CANCELLED:
+                    return
 
-            job.status = JobStatus.RUNNING
-            job.started_at = datetime.utcnow()
-            db.commit()
+                job.status = JobStatus.RUNNING
+                job.started_at = datetime.utcnow()
 
-            print(f"[RUN]  Job gestartet: {job_id}")
+            logger.info(f"Job gestartet: {job_id}")
             self._notify('job_started', job_id)
 
             # Find worker
@@ -262,52 +264,59 @@ class JobQueue:
             # Execute worker
             result = worker(job_id, queued_job.input_data)
 
-            # Success
-            job = db.query(Job).filter(Job.job_id == job_id).first()
-            job.status = JobStatus.COMPLETED
-            job.completed_at = datetime.utcnow()
-            job.output_data = result
+            # Success - update in separate transaction
+            with get_db_session() as db:
+                job = db.query(Job).filter(Job.job_id == job_id).first()
+                if job:
+                    job.status = JobStatus.COMPLETED
+                    job.completed_at = datetime.utcnow()
+                    job.output_data = result
 
-            # Update token counts if present
-            if result and 'tokens_input' in result:
-                job.tokens_input = result.get('tokens_input', 0)
-            if result and 'tokens_output' in result:
-                job.tokens_output = result.get('tokens_output', 0)
+                    # Update token counts if present
+                    if result and 'tokens_input' in result:
+                        job.tokens_input = result.get('tokens_input', 0)
+                    if result and 'tokens_output' in result:
+                        job.tokens_output = result.get('tokens_output', 0)
 
-            db.commit()
-
-            print(f"[OK] Job abgeschlossen: {job_id}")
+            logger.info(f"Job abgeschlossen: {job_id}")
             self._notify('job_completed', job_id, result)
 
         except Exception as e:
             error_msg = str(e)
-            print(f"[ERROR] Job fehlgeschlagen: {job_id} - {error_msg}")
+            logger.error(f"Job fehlgeschlagen: {job_id} - {error_msg}")
 
-            # Update job with error
-            job = db.query(Job).filter(Job.job_id == job_id).first()
-            if job:
-                job.retry_count += 1
-                job.error_message = error_msg
+            # Update job with error in separate transaction
+            try:
+                with get_db_session() as db:
+                    job = db.query(Job).filter(Job.job_id == job_id).first()
+                    if job:
+                        job.retry_count += 1
+                        job.error_message = error_msg
 
-                if job.retry_count < job.max_retries:
-                    # Retry
-                    job.status = JobStatus.QUEUED
-                    db.commit()
+                        if job.retry_count < job.max_retries:
+                            # Retry
+                            job.status = JobStatus.QUEUED
+                            retry_count = job.retry_count
+                            priority = job.priority
+                        else:
+                            # Failed
+                            job.status = JobStatus.FAILED
+                            job.completed_at = datetime.utcnow()
+                            retry_count = None
+                            priority = None
 
-                    # Re-queue with lower priority
+                # Re-queue outside of transaction if retry needed
+                if retry_count is not None:
                     self._queue.put(QueuedJob(
-                        priority=-(job.priority - 1),
+                        priority=-(priority - 1),
                         created_at=time.time(),
                         job_id=job_id,
                         job_type=queued_job.job_type,
                         input_data=queued_job.input_data,
                     ))
-                    print(f"[RETRY] Job wird wiederholt: {job_id} (Versuch {job.retry_count})")
-                else:
-                    # Failed
-                    job.status = JobStatus.FAILED
-                    job.completed_at = datetime.utcnow()
-                    db.commit()
+                    logger.info(f"Job wird wiederholt: {job_id} (Versuch {retry_count})")
+            except Exception as db_error:
+                logger.error(f"Fehler beim Aktualisieren des fehlgeschlagenen Jobs: {db_error}")
 
             self._notify('job_failed', job_id, {'error': error_msg})
 
@@ -316,8 +325,6 @@ class JobQueue:
             with self._lock:
                 if job_id in self._active_jobs:
                     del self._active_jobs[job_id]
-
-            db.close()
 
     def _process_loop(self):
         """Haupt-Processing Loop"""
@@ -341,11 +348,11 @@ class JobQueue:
                     continue
 
                 # Check if job is still valid
-                db = SessionLocal()
-                job = db.query(Job).filter(Job.job_id == queued_job.job_id).first()
-                db.close()
+                with get_db_session() as db:
+                    job = db.query(Job).filter(Job.job_id == queued_job.job_id).first()
+                    job_valid = job and job.status != JobStatus.CANCELLED
 
-                if not job or job.status == JobStatus.CANCELLED:
+                if not job_valid:
                     continue
 
                 # Start job thread
