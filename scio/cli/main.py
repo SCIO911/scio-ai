@@ -471,5 +471,269 @@ def python(
     console.print()
 
 
+@app.command()
+def history(
+    experiment: Optional[str] = typer.Argument(None, help="Experiment-Name"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Maximale Anzahl"),
+) -> None:
+    """Zeigt die Experiment-Historie."""
+    from scio.persistence import ExperimentHistory
+
+    hist = ExperimentHistory()
+
+    if experiment:
+        runs = hist.get_experiment_runs(experiment, limit=limit)
+        console.print(f"\n[bold]Historie: {experiment}[/bold]\n")
+    else:
+        from scio.persistence.store import ResultStore
+        store = ResultStore()
+        runs = store.list(limit=limit)
+        console.print(f"\n[bold]Letzte Ausfuehrungen[/bold]\n")
+
+    if not runs:
+        console.print("[yellow]Keine Ergebnisse gefunden[/yellow]")
+        return
+
+    table = Table()
+    table.add_column("ID", style="cyan")
+    table.add_column("Experiment")
+    table.add_column("Status")
+    table.add_column("Dauer")
+    table.add_column("Datum")
+
+    for run in runs:
+        status = run.get("status", "?")
+        status_color = "green" if status == "completed" else "red" if status == "failed" else "yellow"
+        duration = f"{run.get('duration_ms', 0)}ms" if run.get('duration_ms') else "-"
+        date = run.get("started_at", "")[:19].replace("T", " ")
+
+        table.add_row(
+            run.get("execution_id", "?")[:12],
+            run.get("experiment_name", "?"),
+            f"[{status_color}]{status}[/{status_color}]",
+            duration,
+            date,
+        )
+
+    console.print(table)
+    console.print()
+
+
+@app.command()
+def checkpoints(
+    execution_id: Optional[str] = typer.Argument(None, help="Execution-ID"),
+    list_resumable: bool = typer.Option(False, "--resumable", "-r", help="Zeige fortsetzbare Ausfuehrungen"),
+) -> None:
+    """Verwaltet Checkpoints."""
+    from scio.execution.checkpoint import CheckpointManager
+
+    mgr = CheckpointManager()
+
+    if list_resumable:
+        console.print("\n[bold]Fortsetzbare Ausfuehrungen[/bold]\n")
+        resumable = mgr.get_resumable_executions()
+
+        if not resumable:
+            console.print("[yellow]Keine fortsetzbaren Ausfuehrungen gefunden[/yellow]")
+            return
+
+        table = Table()
+        table.add_column("Execution ID", style="cyan")
+        table.add_column("Experiment")
+        table.add_column("Checkpoint")
+        table.add_column("Steps")
+        table.add_column("Datum")
+
+        for r in resumable:
+            table.add_row(
+                r["execution_id"][:12],
+                r["experiment_name"],
+                r["checkpoint_id"][:12],
+                str(r["completed_steps"]),
+                r["created_at"][:19].replace("T", " "),
+            )
+
+        console.print(table)
+    elif execution_id:
+        console.print(f"\n[bold]Checkpoints fuer {execution_id}[/bold]\n")
+        checkpoints_list = mgr.list_checkpoints(execution_id=execution_id)
+
+        if not checkpoints_list:
+            console.print("[yellow]Keine Checkpoints gefunden[/yellow]")
+            return
+
+        for ckpt in checkpoints_list:
+            console.print(f"  {BULLET} {ckpt.checkpoint_id}")
+            console.print(f"    Step: {ckpt.step_index}, Completed: {len(ckpt.completed_steps)}")
+            console.print(f"    Erstellt: {ckpt.created_at}")
+    else:
+        console.print("\n[bold]Alle Checkpoints[/bold]\n")
+        all_checkpoints = mgr.list_checkpoints(limit=20)
+
+        if not all_checkpoints:
+            console.print("[yellow]Keine Checkpoints gefunden[/yellow]")
+            return
+
+        table = Table()
+        table.add_column("Checkpoint ID", style="cyan")
+        table.add_column("Execution ID")
+        table.add_column("Experiment")
+        table.add_column("Step Index")
+
+        for ckpt in all_checkpoints:
+            table.add_row(
+                ckpt.checkpoint_id[:12],
+                ckpt.execution_id[:12],
+                ckpt.experiment_name,
+                str(ckpt.step_index),
+            )
+
+        console.print(table)
+
+    console.print()
+
+
+@app.command()
+def resume(
+    checkpoint_id: str = typer.Argument(..., help="Checkpoint-ID"),
+    experiment_file: Path = typer.Argument(..., help="Experiment-Datei"),
+) -> None:
+    """Setzt ein Experiment von einem Checkpoint fort."""
+    import asyncio
+    from scio.execution.engine import ExecutionEngine, ExecutionStatus
+
+    console.print(f"\n[bold]Resume von Checkpoint:[/bold] {checkpoint_id}\n")
+
+    try:
+        experiment = parse_experiment(experiment_file)
+        engine = ExecutionEngine()
+
+        def on_step_complete(step_result):
+            status_icon = OK if step_result.status == ExecutionStatus.COMPLETED else (
+                WARN if step_result.status == ExecutionStatus.SKIPPED else FAIL
+            )
+            console.print(f"  {status_icon} {step_result.step_id}")
+
+        async def do_resume():
+            return await engine.resume_from_checkpoint(
+                checkpoint_id,
+                experiment,
+                on_step_complete=on_step_complete,
+            )
+
+        result = asyncio.run(do_resume())
+
+        console.print()
+        if result.status == ExecutionStatus.COMPLETED:
+            console.print(f"{OK} [green bold]Experiment erfolgreich fortgesetzt[/green bold]")
+        else:
+            console.print(f"{FAIL} [red bold]Experiment fehlgeschlagen[/red bold]")
+
+    except Exception as e:
+        console.print(f"\n[red bold]Fehler:[/red bold] {e}\n")
+        raise typer.Exit(1)
+
+
+@app.command()
+def stats(
+    experiment: Optional[str] = typer.Argument(None, help="Experiment-Name"),
+) -> None:
+    """Zeigt Statistiken ueber Ausfuehrungen."""
+    from scio.persistence.store import ResultStore
+
+    store = ResultStore()
+    statistics = store.get_statistics(experiment_name=experiment)
+
+    title = f"Statistiken: {experiment}" if experiment else "Globale Statistiken"
+    console.print(f"\n[bold]{title}[/bold]\n")
+
+    table = Table()
+    table.add_column("Metrik", style="cyan")
+    table.add_column("Wert", style="green")
+
+    table.add_row("Gesamt Ausfuehrungen", str(statistics["total_executions"]))
+    table.add_row(
+        "Erfolgsrate",
+        f"{statistics['success_rate']*100:.1f}%"
+    )
+    if statistics.get("average_duration_ms"):
+        table.add_row(
+            "Durchschnittliche Dauer",
+            f"{statistics['average_duration_ms']:.0f}ms"
+        )
+
+    console.print(table)
+
+    if statistics.get("status_distribution"):
+        console.print("\n[bold]Status-Verteilung:[/bold]")
+        for status, count in statistics["status_distribution"].items():
+            console.print(f"  {BULLET} {status}: {count}")
+
+    console.print()
+
+
+@app.command()
+def experiments(
+    action: str = typer.Argument("list", help="Aktion: list, save, load"),
+    name: Optional[str] = typer.Argument(None, help="Experiment-Name"),
+    file: Optional[Path] = typer.Option(None, "--file", "-f", help="Experiment-Datei"),
+) -> None:
+    """Verwaltet gespeicherte Experimente."""
+    from scio.persistence.store import ExperimentStore
+
+    store = ExperimentStore()
+
+    if action == "list":
+        console.print("\n[bold]Gespeicherte Experimente[/bold]\n")
+        exps = store.list(name_filter=name, limit=20)
+
+        if not exps:
+            console.print("[yellow]Keine Experimente gefunden[/yellow]")
+            return
+
+        table = Table()
+        table.add_column("ID", style="cyan")
+        table.add_column("Name")
+        table.add_column("Version")
+        table.add_column("Autor")
+        table.add_column("Tags")
+
+        for exp in exps:
+            table.add_row(
+                exp["id"][:12],
+                exp["name"],
+                exp["version"],
+                exp.get("author") or "-",
+                ", ".join(exp.get("tags", [])),
+            )
+
+        console.print(table)
+
+    elif action == "save":
+        if not file:
+            console.print("[red]Bitte --file angeben[/red]")
+            raise typer.Exit(1)
+
+        experiment = parse_experiment(file)
+        exp_id = store.save(experiment)
+        console.print(f"\n{OK} Experiment gespeichert: {exp_id}\n")
+
+    elif action == "load":
+        if not name:
+            console.print("[red]Bitte Experiment-ID angeben[/red]")
+            raise typer.Exit(1)
+
+        exp = store.load(name)
+        if exp:
+            console.print(f"\n[bold]Experiment:[/bold] {exp.name}")
+            console.print(f"  Version: {exp.version}")
+            console.print(f"  Steps: {len(exp.steps)}")
+            console.print(f"  Agents: {len(exp.agents)}")
+        else:
+            console.print(f"[red]Experiment nicht gefunden: {name}[/red]")
+
+    console.print()
+
+
 if __name__ == "__main__":
     app()

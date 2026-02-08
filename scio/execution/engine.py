@@ -20,6 +20,30 @@ from scio.parser.schema import ExperimentSchema, StepSchema
 logger = get_logger(__name__)
 
 
+# Event Types
+class ExecutionEvent(str, Enum):
+    """Typen von Execution-Events."""
+
+    EXECUTION_START = "execution_start"
+    EXECUTION_COMPLETE = "execution_complete"
+    EXECUTION_FAILED = "execution_failed"
+    STEP_START = "step_start"
+    STEP_COMPLETE = "step_complete"
+    STEP_FAILED = "step_failed"
+    STEP_SKIPPED = "step_skipped"
+    CHECKPOINT_CREATED = "checkpoint_created"
+
+
+@dataclass
+class Event:
+    """Ein Execution-Event."""
+
+    event_type: ExecutionEvent
+    execution_id: str
+    timestamp: datetime
+    data: dict[str, Any] = field(default_factory=dict)
+
+
 class ExecutionStatus(str, Enum):
     """Status einer Ausführung."""
 
@@ -707,3 +731,347 @@ class ExecutionEngine:
     def list_running(self) -> list[str]:
         """Gibt alle laufenden Ausführungen zurück."""
         return list(self._running.keys())
+
+    # Event System
+    def add_event_handler(
+        self,
+        event_type: ExecutionEvent,
+        handler: Callable[[Event], None],
+    ) -> None:
+        """
+        Registriert einen Event-Handler.
+
+        Args:
+            event_type: Der Event-Typ
+            handler: Die Handler-Funktion
+        """
+        if not hasattr(self, "_event_handlers"):
+            self._event_handlers: dict[ExecutionEvent, list[Callable]] = {}
+
+        if event_type not in self._event_handlers:
+            self._event_handlers[event_type] = []
+
+        self._event_handlers[event_type].append(handler)
+
+    def _emit_event(self, event: Event) -> None:
+        """Sendet ein Event an alle registrierten Handler."""
+        if not hasattr(self, "_event_handlers"):
+            return
+
+        handlers = self._event_handlers.get(event.event_type, [])
+        for handler in handlers:
+            try:
+                handler(event)
+            except Exception as e:
+                self.logger.error(
+                    "Event handler failed",
+                    event_type=event.event_type.value,
+                    error=str(e),
+                )
+
+    # Parallel Execution
+    async def execute_parallel(
+        self,
+        experiment: ExperimentSchema,
+        parameters: dict[str, Any] | None = None,
+        max_parallel: int = 4,
+        on_step_complete: Optional[Callable[[StepResult], None]] = None,
+    ) -> ExecutionResult:
+        """
+        Führt ein Experiment mit paralleler Step-Ausführung aus.
+
+        Steps ohne gegenseitige Abhängigkeiten werden parallel ausgeführt.
+
+        Args:
+            experiment: Das auszuführende Experiment
+            parameters: Parameter-Überschreibungen
+            max_parallel: Maximale Anzahl paralleler Steps
+            on_step_complete: Callback nach jedem Step
+
+        Returns:
+            ExecutionResult mit allen Ergebnissen
+        """
+        execution_id = generate_id("exec")
+        parameters = parameters or {}
+
+        # Merge mit Default-Parametern
+        merged_params = {}
+        for param in experiment.parameters:
+            merged_params[param.name] = param.default
+        merged_params.update(parameters)
+
+        self.logger.info(
+            "Starting parallel experiment execution",
+            execution_id=execution_id,
+            experiment=experiment.name,
+            max_parallel=max_parallel,
+        )
+
+        result = ExecutionResult(
+            execution_id=execution_id,
+            experiment_name=experiment.name,
+            status=ExecutionStatus.RUNNING,
+            started_at=now_utc(),
+            metadata={
+                "parameters": merged_params,
+                "step_count": len(experiment.steps),
+                "parallel": True,
+                "max_parallel": max_parallel,
+            },
+        )
+
+        self._running[execution_id] = result
+
+        context = ExecutionContext(
+            execution_id=execution_id,
+            experiment_name=experiment.name,
+            parameters=merged_params,
+        )
+
+        await self._create_agents(experiment, context)
+
+        self._emit_event(Event(
+            event_type=ExecutionEvent.EXECUTION_START,
+            execution_id=execution_id,
+            timestamp=now_utc(),
+            data={"experiment": experiment.name},
+        ))
+
+        try:
+            # Baue Dependency-Graph
+            step_map = {s.id: s for s in experiment.steps}
+            completed = set()
+            pending = set(step_map.keys())
+
+            while pending:
+                # Finde Steps ohne ausstehende Abhängigkeiten
+                ready = []
+                for step_id in pending:
+                    step = step_map[step_id]
+                    if all(dep in completed for dep in step.depends_on):
+                        ready.append(step_id)
+
+                if not ready:
+                    raise ExecutionError("Deadlock: Keine ausführbaren Steps")
+
+                # Limitiere parallele Ausführung
+                ready = ready[:max_parallel]
+
+                # Führe parallele Steps aus
+                tasks = []
+                for step_id in ready:
+                    step = step_map[step_id]
+                    tasks.append(self._execute_step(step, context, experiment))
+
+                step_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Verarbeite Ergebnisse
+                for step_id, step_result in zip(ready, step_results):
+                    if isinstance(step_result, Exception):
+                        step_result = StepResult(
+                            step_id=step_id,
+                            status=ExecutionStatus.FAILED,
+                            started_at=now_utc(),
+                            completed_at=now_utc(),
+                            error=str(step_result),
+                        )
+
+                    result.step_results.append(step_result)
+
+                    if on_step_complete:
+                        on_step_complete(step_result)
+
+                    if step_result.status == ExecutionStatus.FAILED:
+                        result.status = ExecutionStatus.FAILED
+                        result.metadata["failed_step"] = step_id
+                        pending.clear()
+                        break
+
+                    context.step_outputs[step_id] = step_result.outputs
+                    completed.add(step_id)
+                    pending.discard(step_id)
+
+            if result.status == ExecutionStatus.RUNNING:
+                result.status = ExecutionStatus.COMPLETED
+
+            result.completed_at = now_utc()
+            result.outputs = dict(context.step_outputs)
+
+            self._emit_event(Event(
+                event_type=ExecutionEvent.EXECUTION_COMPLETE,
+                execution_id=execution_id,
+                timestamp=now_utc(),
+                data={"status": result.status.value},
+            ))
+
+        except Exception as e:
+            self.logger.error("Parallel execution failed", error=str(e))
+            result.status = ExecutionStatus.FAILED
+            result.completed_at = now_utc()
+            result.metadata["error"] = str(e)
+
+            self._emit_event(Event(
+                event_type=ExecutionEvent.EXECUTION_FAILED,
+                execution_id=execution_id,
+                timestamp=now_utc(),
+                data={"error": str(e)},
+            ))
+
+        finally:
+            if execution_id in self._running:
+                del self._running[execution_id]
+            self._agents_cache.clear()
+            self._tools_cache.clear()
+
+        return result
+
+    # Checkpoint Resume
+    async def resume_from_checkpoint(
+        self,
+        checkpoint_id: str,
+        experiment: ExperimentSchema,
+        on_step_complete: Optional[Callable[[StepResult], None]] = None,
+    ) -> ExecutionResult:
+        """
+        Setzt eine Ausführung von einem Checkpoint fort.
+
+        Args:
+            checkpoint_id: Die Checkpoint-ID
+            experiment: Das Experiment
+            on_step_complete: Callback nach jedem Step
+
+        Returns:
+            ExecutionResult
+        """
+        from scio.execution.checkpoint import CheckpointManager
+
+        checkpoint_mgr = CheckpointManager()
+        checkpoint = checkpoint_mgr.get_checkpoint(checkpoint_id)
+
+        if not checkpoint:
+            raise ExecutionError(f"Checkpoint nicht gefunden: {checkpoint_id}")
+
+        self.logger.info(
+            "Resuming from checkpoint",
+            checkpoint_id=checkpoint_id,
+            execution_id=checkpoint.execution_id,
+            step_index=checkpoint.step_index,
+        )
+
+        # Erstelle neuen Execution-Kontext mit Checkpoint-Daten
+        context = ExecutionContext(
+            execution_id=checkpoint.execution_id,
+            experiment_name=checkpoint.experiment_name,
+            parameters=checkpoint.parameters,
+            step_outputs=checkpoint.step_outputs,
+            variables=checkpoint.variables,
+        )
+
+        result = ExecutionResult(
+            execution_id=checkpoint.execution_id,
+            experiment_name=checkpoint.experiment_name,
+            status=ExecutionStatus.RUNNING,
+            started_at=now_utc(),
+            metadata={
+                "resumed_from": checkpoint_id,
+                "original_step_index": checkpoint.step_index,
+            },
+        )
+
+        self._running[checkpoint.execution_id] = result
+        await self._create_agents(experiment, context)
+
+        try:
+            execution_order = experiment.get_execution_order()
+
+            # Überspringe bereits abgeschlossene Steps
+            start_index = 0
+            for i, step_id in enumerate(execution_order):
+                if step_id not in checkpoint.completed_steps:
+                    start_index = i
+                    break
+
+            self.logger.info(
+                "Resuming from step",
+                start_index=start_index,
+                step_id=execution_order[start_index],
+            )
+
+            # Führe verbleibende Steps aus
+            for step_id in execution_order[start_index:]:
+                step = next(s for s in experiment.steps if s.id == step_id)
+                step_result = await self._execute_step(step, context, experiment)
+                result.step_results.append(step_result)
+
+                if on_step_complete:
+                    on_step_complete(step_result)
+
+                if step_result.status == ExecutionStatus.FAILED:
+                    result.status = ExecutionStatus.FAILED
+                    result.metadata["failed_step"] = step_id
+                    break
+
+                context.step_outputs[step_id] = step_result.outputs
+
+            if result.status == ExecutionStatus.RUNNING:
+                result.status = ExecutionStatus.COMPLETED
+
+            result.completed_at = now_utc()
+            result.outputs = dict(context.step_outputs)
+
+        except Exception as e:
+            self.logger.error("Resume failed", error=str(e))
+            result.status = ExecutionStatus.FAILED
+            result.completed_at = now_utc()
+            result.metadata["error"] = str(e)
+
+        finally:
+            if checkpoint.execution_id in self._running:
+                del self._running[checkpoint.execution_id]
+            self._agents_cache.clear()
+            self._tools_cache.clear()
+
+        return result
+
+    def create_checkpoint(
+        self,
+        execution_id: str,
+        experiment_name: str,
+        context: ExecutionContext,
+        step_index: int,
+        completed_steps: list[str],
+    ) -> str:
+        """
+        Erstellt einen Checkpoint für die aktuelle Ausführung.
+
+        Args:
+            execution_id: Die Execution-ID
+            experiment_name: Name des Experiments
+            context: Der aktuelle Kontext
+            step_index: Index des aktuellen Steps
+            completed_steps: Liste abgeschlossener Steps
+
+        Returns:
+            Die Checkpoint-ID
+        """
+        from scio.execution.checkpoint import CheckpointManager
+
+        checkpoint_mgr = CheckpointManager()
+        checkpoint = checkpoint_mgr.create_checkpoint(
+            execution_id=execution_id,
+            experiment_name=experiment_name,
+            step_index=step_index,
+            completed_steps=completed_steps,
+            step_outputs=context.step_outputs,
+            parameters=context.parameters,
+            variables=context.variables,
+        )
+
+        self._emit_event(Event(
+            event_type=ExecutionEvent.CHECKPOINT_CREATED,
+            execution_id=execution_id,
+            timestamp=now_utc(),
+            data={"checkpoint_id": checkpoint.checkpoint_id},
+        ))
+
+        return checkpoint.checkpoint_id
