@@ -3,12 +3,8 @@
 SCIO - Code Generator
 Generiert neuen Code für SCIO selbst
 
-Features:
-- Worker-Generation
-- Route-Generation
-- Service-Generation
-- Integration-Generation
-- Basierend auf existierenden Patterns
+WICHTIG: Verwendet IMMER echte KI (LLM) für Code-Generierung.
+KEINE Templates, KEINE Platzhalter - nur echter KI-generierter Code.
 """
 
 import os
@@ -30,235 +26,12 @@ class GeneratedCode:
     tests: Optional[str] = None
 
 
-# Templates für verschiedene Code-Typen
-WORKER_TEMPLATE = '''#!/usr/bin/env python3
-"""
-SCIO - {worker_name} Worker
-{description}
-Automatisch generiert von SCIO Autonomy System
-Generiert am: {timestamp}
-"""
-
-import os
-import time
-from pathlib import Path
-from typing import Optional, List, Dict, Any
-
-from .base_worker import BaseWorker, WorkerStatus, model_manager
-from backend.config import Config
-
-# PyTorch
-try:
-    import torch
-    TORCH_AVAILABLE = True
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-except ImportError:
-    TORCH_AVAILABLE = False
-
-# Transformers
-try:
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-
-
-# Available Models
-{worker_name_upper}_MODELS = {{
-{models_config}
-}}
-
-
-class {class_name}(BaseWorker):
-    """
-    {worker_name} Worker - {description}
-
-    Features:
-{features_list}
-    """
-
-    def __init__(self):
-        super().__init__("{worker_name}")
-        self._device = "cuda" if TORCH_AVAILABLE and torch.cuda.is_available() else "cpu"
-        self._model = None
-        self._tokenizer = None
-        self._current_model_id = None
-
-    def initialize(self) -> bool:
-        """Initialize the worker"""
-        if not TRANSFORMERS_AVAILABLE:
-            self._error_message = "Transformers library not available"
-            self.status = WorkerStatus.ERROR
-            return False
-
-        self.status = WorkerStatus.READY
-        print(f"[OK] {worker_name} Worker bereit (Device: {{self._device}})")
-        return True
-
-    def _load_model(self, model_id: str):
-        """Load a model"""
-        if model_id not in {worker_name_upper}_MODELS:
-            model_id = list({worker_name_upper}_MODELS.keys())[0]  # Default
-
-        model_info = {worker_name_upper}_MODELS[model_id]
-        hf_id = model_info['hf_id']
-
-        def loader():
-            print(f"[LOAD] Lade {{model_info['name']}}...")
-
-            dtype = torch.bfloat16 if self._device == "cuda" else torch.float32
-
-            tokenizer = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True)
-
-            model = AutoModelForCausalLM.from_pretrained(
-                hf_id,
-                torch_dtype=dtype,
-                device_map="auto" if self._device == "cuda" else None,
-                trust_remote_code=True,
-                low_cpu_mem_usage=True,
-            )
-
-            return {{"model": model, "tokenizer": tokenizer}}
-
-        result = model_manager.get_model(hf_id, loader)
-        self._model = result["model"]
-        self._tokenizer = result["tokenizer"]
-        self._current_model_id = model_id
-        print(f"[OK] {{model_info['name']}} geladen")
-
-{methods}
-
-    def process(self, job_id: str, input_data: dict) -> dict:
-        """Process a job"""
-        task_type = input_data.get("task", "{default_task}")
-        model = input_data.get("model", list({worker_name_upper}_MODELS.keys())[0])
-
-        self.notify_progress(job_id, 0.1, f"Starting {{task_type}}")
-
-{process_handlers}
-
-        self.notify_progress(job_id, 1.0, "Complete")
-        return result
-
-    def cleanup(self):
-        """Release resources"""
-        self._model = None
-        self._tokenizer = None
-
-        if TORCH_AVAILABLE and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        print("[OK] {worker_name} Worker bereinigt")
-
-    def get_available_models(self) -> dict:
-        """Return available models"""
-        return {worker_name_upper}_MODELS
-
-
-# Singleton Instance
-_{worker_name_lower}_worker: Optional[{class_name}] = None
-
-
-def get_{worker_name_lower}_worker() -> {class_name}:
-    """Get singleton instance"""
-    global _{worker_name_lower}_worker
-    if _{worker_name_lower}_worker is None:
-        _{worker_name_lower}_worker = {class_name}()
-    return _{worker_name_lower}_worker
-'''
-
-
-ROUTE_TEMPLATE = '''#!/usr/bin/env python3
-"""
-SCIO - {route_name} Routes
-{description}
-Automatisch generiert von SCIO Autonomy System
-Generiert am: {timestamp}
-"""
-
-from flask import Blueprint, request, jsonify
-from backend.services.api_keys import require_api_key
-
-{route_name_lower}_bp = Blueprint('{route_name_lower}', __name__)
-
-
-{endpoints}
-
-
-def register_{route_name_lower}_routes(app):
-    """Registriert {route_name} Routes"""
-    app.register_blueprint({route_name_lower}_bp, url_prefix='/api/v1/{route_name_lower}')
-'''
-
-
-SERVICE_TEMPLATE = '''#!/usr/bin/env python3
-"""
-SCIO - {service_name} Service
-{description}
-Automatisch generiert von SCIO Autonomy System
-Generiert am: {timestamp}
-"""
-
-import threading
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-
-
-class {class_name}:
-    """
-    {service_name} Service
-
-    {description}
-    """
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._initialized = False
-{init_vars}
-
-    def initialize(self) -> bool:
-        """Initialisiert den Service"""
-        try:
-{init_code}
-            self._initialized = True
-            print(f"[OK] {service_name} Service initialisiert")
-            return True
-        except Exception as e:
-            print(f"[ERROR] {service_name} Init fehlgeschlagen: {{e}}")
-            return False
-
-{methods}
-
-    def shutdown(self):
-        """Beendet den Service"""
-        with self._lock:
-            self._initialized = False
-        print(f"[OK] {service_name} Service beendet")
-
-
-# Singleton
-_{service_name_lower}_service: Optional[{class_name}] = None
-
-
-def get_{service_name_lower}_service() -> {class_name}:
-    """Gibt Singleton-Instanz zurück"""
-    global _{service_name_lower}_service
-    if _{service_name_lower}_service is None:
-        _{service_name_lower}_service = {class_name}()
-    return _{service_name_lower}_service
-'''
-
-
 class CodeGenerator:
     """
     SCIO Code Generator
 
-    Generiert neuen Code basierend auf:
-    - Erkannten Lücken
-    - Existierenden Patterns
-    - Best Practices
+    Verwendet den AI Programmer für ECHTE KI-basierte Code-Generierung.
+    KEINE Templates - alle Code-Generierung erfolgt durch LLM.
     """
 
     def __init__(self):
@@ -267,6 +40,16 @@ class CodeGenerator:
         self.memory = None
         self.base_path = Path(getattr(Config, 'BASE_DIR', 'C:/SCIO'))
         self._generated_files: List[GeneratedCode] = []
+        self._ai_programmer = None
+
+    def _get_ai_programmer(self):
+        """Lazy-Load des AI Programmers"""
+        if self._ai_programmer is None:
+            from backend.autonomy.ai_programmer import get_ai_programmer
+            self._ai_programmer = get_ai_programmer()
+            if not self._ai_programmer._initialized:
+                self._ai_programmer.initialize()
+        return self._ai_programmer
 
     def initialize(self, self_awareness, memory) -> bool:
         """Initialisiert den Code Generator"""
@@ -282,77 +65,59 @@ class CodeGenerator:
         models: List[Dict[str, str]] = None,
     ) -> GeneratedCode:
         """
-        Generiert einen neuen Worker
+        Generiert einen neuen Worker mit ECHTER KI.
 
         Args:
             name: Worker-Name (z.B. "Translation")
             description: Beschreibung
-            capabilities: Liste von Fähigkeiten (z.B. ["translate_text", "detect_language"])
-            models: Liste von Modellen [{name, hf_id, vram_gb}]
+            capabilities: Liste von Fähigkeiten
+            models: Liste von Modellen
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        worker_name = name
         worker_name_lower = name.lower().replace(" ", "_")
-        worker_name_upper = worker_name_lower.upper()
-        class_name = f"{name.replace(' ', '')}Worker"
 
-        # Generate models config
+        # Baue detaillierte Anforderungen für den AI Programmer
+        requirements = [
+            f"Worker-Name: {name}",
+            f"Beschreibung: {description}",
+            "Muss von BaseWorker erben",
+            "Muss initialize(), process(), cleanup() implementieren",
+            "Singleton-Pattern mit get_*_worker() Funktion",
+            "GPU-Support mit torch.cuda.is_available()",
+            "Thread-Safety mit Lock",
+        ]
+
+        for cap in capabilities:
+            requirements.append(f"Fähigkeit: {cap} - vollständig implementiert")
+
         if models:
-            models_config = ""
-            for m in models:
-                models_config += f"    '{m['name']}': {{\n"
-                models_config += f"        'name': '{m.get('display_name', m['name'])}',\n"
-                models_config += f"        'hf_id': '{m['hf_id']}',\n"
-                models_config += f"        'vram_gb': {m.get('vram_gb', 8)},\n"
-                models_config += f"        'context_length': {m.get('context_length', 8192)},\n"
-                models_config += "    },\n"
-        else:
-            models_config = "    # Add models here\n"
+            models_desc = ", ".join([f"{m['name']}: {m.get('hf_id', 'custom')}" for m in models])
+            requirements.append(f"Unterstützte Modelle: {models_desc}")
 
-        # Generate features list
-        features_list = ""
-        for cap in capabilities:
-            features_list += f"    - {cap.replace('_', ' ').title()}\n"
+        # AI Programmer für echte Code-Generierung verwenden
+        from backend.autonomy.ai_programmer import ProgrammingTask
 
-        # Generate methods
-        methods = ""
-        for cap in capabilities:
-            method_name = cap
-            methods += self._generate_method(method_name, worker_name)
-            methods += "\n"
-
-        # Generate process handlers
-        process_handlers = ""
-        for i, cap in enumerate(capabilities):
-            if i == 0:
-                process_handlers += f'        if task_type == "{cap}":\n'
-            else:
-                process_handlers += f'        elif task_type == "{cap}":\n'
-            process_handlers += f'            result = self.{cap}(input_data)\n\n'
-
-        process_handlers += '        else:\n'
-        process_handlers += '            raise ValueError(f"Unknown task type: {task_type}")\n'
-
-        # Fill template
-        content = WORKER_TEMPLATE.format(
-            worker_name=worker_name,
-            worker_name_lower=worker_name_lower,
-            worker_name_upper=worker_name_upper,
-            class_name=class_name,
-            description=description,
-            timestamp=timestamp,
-            models_config=models_config,
-            features_list=features_list,
-            methods=methods,
-            process_handlers=process_handlers,
-            default_task=capabilities[0] if capabilities else "process",
+        task = ProgrammingTask(
+            description=f"Erstelle einen vollständigen {name} Worker für SCIO. {description}",
+            requirements=requirements,
+            constraints=[
+                "KEIN Platzhalter-Code",
+                "KEINE pass-Statements ohne Implementierung",
+                "KEINE # TODO Kommentare",
+                "Vollständig funktionsfähiger Code",
+            ],
+            target_file=f"backend/workers/{worker_name_lower}_worker.py",
+            context_files=[
+                "backend/workers/base_worker.py",
+                "backend/workers/llm_inference.py",
+            ],
         )
 
-        file_path = f"backend/workers/{worker_name_lower}_worker.py"
+        ai = self._get_ai_programmer()
+        program = ai.write_program(task, auto_deploy=False, require_tests=True)
 
         generated = GeneratedCode(
-            file_path=file_path,
-            content=content,
+            file_path=task.target_file,
+            content=program.code,
             description=f"Worker für {description}",
             imports_needed=["torch", "transformers"],
             dependencies=[],
@@ -363,119 +128,11 @@ class CodeGenerator:
         if self.memory:
             self.memory.log_event(
                 "code_generation",
-                f"Generated worker: {worker_name}",
-                {"file": file_path, "capabilities": capabilities}
+                f"Generated worker: {name}",
+                {"file": task.target_file, "capabilities": capabilities, "quality": program.quality.value}
             )
 
         return generated
-
-    def _generate_param_validation(self, params: List[str]) -> str:
-        """Generiert Parameter-Validierung für Service-Methoden"""
-        if not params:
-            return "pass  # Keine Parameter zu validieren"
-
-        validations = []
-        for param in params:
-            param_name = param.strip()
-            if param_name:
-                validations.append(f'if {param_name} is None:\n                    raise ValueError("{param_name} darf nicht None sein")')
-
-        return "\n                ".join(validations) if validations else "pass"
-
-    def _generate_method(self, method_name: str, worker_name: str) -> str:
-        """Generiert eine Methode für einen Worker mit echter Implementierung"""
-        return f'''    def {method_name}(self, input_data: dict) -> dict:
-        """
-        {method_name.replace('_', ' ').title()}
-
-        Args:
-            input_data: Eingabedaten mit 'input'/'text'/'prompt' Feld
-
-        Returns:
-            dict mit Ergebnis
-        """
-        start_time = time.time()
-        tokens_in = 0
-        tokens_out = 0
-
-        # Load model if needed
-        model_id = input_data.get("model")
-        if model_id and (self._current_model_id != model_id or self._model is None):
-            self._load_model(model_id)
-
-        if self._model is None or self._tokenizer is None:
-            return {{
-                "status": "error",
-                "error": "Model not loaded",
-                "gpu_seconds": 0,
-            }}
-
-        # Extract input text from various possible fields
-        input_text = (
-            input_data.get("input") or
-            input_data.get("text") or
-            input_data.get("prompt") or
-            input_data.get("content", "")
-        )
-
-        if not input_text:
-            return {{
-                "status": "error",
-                "error": "No input text provided",
-                "gpu_seconds": 0,
-            }}
-
-        try:
-            # Tokenize input
-            inputs = self._tokenizer(
-                input_text,
-                return_tensors="pt",
-                truncation=True,
-                max_length=4096,
-            )
-            tokens_in = inputs["input_ids"].shape[1]
-
-            # Move to device
-            if self._device == "cuda":
-                inputs = {{k: v.cuda() for k, v in inputs.items()}}
-
-            # Generate output
-            with torch.no_grad():
-                outputs = self._model.generate(
-                    **inputs,
-                    max_new_tokens=input_data.get("max_tokens", 512),
-                    temperature=input_data.get("temperature", 0.7),
-                    top_p=input_data.get("top_p", 0.9),
-                    do_sample=input_data.get("temperature", 0.7) > 0,
-                    pad_token_id=self._tokenizer.eos_token_id,
-                )
-
-            # Decode output
-            tokens_out = outputs.shape[1] - tokens_in
-            output_text = self._tokenizer.decode(
-                outputs[0][tokens_in:],
-                skip_special_tokens=True,
-            )
-
-            gpu_seconds = time.time() - start_time
-
-            return {{
-                "status": "success",
-                "output": output_text,
-                "tokens_input": tokens_in,
-                "tokens_output": tokens_out,
-                "gpu_seconds": gpu_seconds,
-                "model": self._current_model_id,
-            }}
-
-        except Exception as e:
-            return {{
-                "status": "error",
-                "error": str(e),
-                "tokens_input": tokens_in,
-                "gpu_seconds": time.time() - start_time,
-            }}
-'''
 
     def generate_route(
         self,
@@ -484,105 +141,63 @@ class CodeGenerator:
         endpoints: List[Dict[str, str]],
     ) -> GeneratedCode:
         """
-        Generiert neue API Routes
+        Generiert neue API Routes mit ECHTER KI.
 
         Args:
             name: Route-Name (z.B. "Translation")
             description: Beschreibung
             endpoints: Liste von Endpoints [{path, method, function, description}]
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        route_name = name
         route_name_lower = name.lower().replace(" ", "_")
 
-        # Generate endpoints
-        endpoints_code = ""
+        # Baue Endpoint-Beschreibungen
+        endpoint_reqs = []
         for ep in endpoints:
-            path = ep.get("path", "/")
-            method = ep.get("method", "POST")
-            func_name = ep.get("function", "handler")
-            ep_description = ep.get("description", "")
-            worker_name = ep.get("worker", route_name_lower)
+            ep_desc = (
+                f"Endpoint: {ep.get('method', 'POST')} {ep.get('path', '/')} - "
+                f"{ep.get('description', '')} (Funktion: {ep.get('function', 'handler')})"
+            )
+            endpoint_reqs.append(ep_desc)
 
-            endpoints_code += f'''
-@{route_name_lower}_bp.route('{path}', methods=['{method}'])
-@require_api_key
-def {func_name}():
-    """
-    {ep_description}
-    """
-    try:
-        data = request.get_json() or {{}}
+        requirements = [
+            f"Route-Name: {name}",
+            f"Beschreibung: {description}",
+            "Flask Blueprint verwenden",
+            "@require_api_key Decorator für Authentifizierung",
+            "Vollständige Error-Handling mit try/except",
+            "JSON Response mit status-Feld",
+            "Job-Queue Integration für asynchrone Verarbeitung",
+        ] + endpoint_reqs
 
-        # Validiere erforderliche Felder
-        if not data:
-            return jsonify({{"error": "Request body required"}}), 400
+        from backend.autonomy.ai_programmer import ProgrammingTask
 
-        # Hole Worker-Instanz
-        from backend.workers.{worker_name}_worker import get_{worker_name}_worker
-        worker = get_{worker_name}_worker()
-
-        # Prüfe Worker-Status
-        if worker.status.value == 'error':
-            return jsonify({{"error": "Worker not available", "details": worker._error_message}}), 503
-
-        # Job erstellen und ausführen
-        from backend.services.job_queue import get_job_queue
-        import uuid
-
-        job_id = str(uuid.uuid4())
-        queue = get_job_queue()
-
-        job = queue.submit(
-            job_id=job_id,
-            job_type="{func_name}",
-            input_data=data,
-            priority=data.get("priority", 5),
+        task = ProgrammingTask(
+            description=f"Erstelle Flask Routes für {name}. {description}",
+            requirements=requirements,
+            constraints=[
+                "Vollständige Implementierung aller Endpoints",
+                "Korrekte HTTP Status Codes",
+                "Input-Validierung für alle Endpoints",
+            ],
+            target_file=f"backend/routes/{route_name_lower}.py",
+            context_files=[
+                "backend/routes/inference.py",
+                "backend/services/api_keys.py",
+            ],
         )
 
-        # Synchrone Ausführung wenn gewünscht
-        if data.get("sync", False):
-            result = worker(job_id, data)
-            return jsonify({{
-                "job_id": job_id,
-                "status": "completed",
-                "result": result,
-            }})
-
-        # Asynchrone Ausführung
-        return jsonify({{
-            "job_id": job_id,
-            "status": "queued",
-            "message": "Job submitted successfully",
-        }}), 202
-
-    except ValueError as e:
-        return jsonify({{"error": "Invalid input", "details": str(e)}}), 400
-    except Exception as e:
-        return jsonify({{"error": "Internal error", "details": str(e)}}), 500
-
-'''
-
-        content = ROUTE_TEMPLATE.format(
-            route_name=route_name,
-            route_name_lower=route_name_lower,
-            description=description,
-            timestamp=timestamp,
-            endpoints=endpoints_code,
-        )
-
-        file_path = f"backend/routes/{route_name_lower}.py"
+        ai = self._get_ai_programmer()
+        program = ai.write_program(task, auto_deploy=False, require_tests=True)
 
         generated = GeneratedCode(
-            file_path=file_path,
-            content=content,
+            file_path=task.target_file,
+            content=program.code,
             description=f"API Routes für {description}",
             imports_needed=["flask"],
             dependencies=[],
         )
 
         self._generated_files.append(generated)
-
         return generated
 
     def generate_service(
@@ -593,7 +208,7 @@ def {func_name}():
         init_vars: List[str] = None,
     ) -> GeneratedCode:
         """
-        Generiert einen neuen Service
+        Generiert einen neuen Service mit ECHTER KI.
 
         Args:
             name: Service-Name
@@ -601,104 +216,63 @@ def {func_name}():
             methods: Liste von Methoden [{name, description, params, returns}]
             init_vars: Initialisierungs-Variablen
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        service_name = name
         service_name_lower = name.lower().replace(" ", "_")
-        class_name = f"{name.replace(' ', '')}Service"
 
-        # Generate init vars
-        init_vars_code = ""
-        if init_vars:
-            for var in init_vars:
-                init_vars_code += f"        self.{var} = None\n"
-
-        # Generate methods
-        methods_code = ""
+        # Baue Methoden-Beschreibungen
+        method_reqs = []
         for m in methods:
-            method_name = m.get("name", "method")
-            method_desc = m.get("description", "")
-            params = m.get("params", "")
-            returns = m.get("returns", "Any")
+            m_desc = (
+                f"Methode: {m.get('name', 'method')}({m.get('params', '')}) -> {m.get('returns', 'Any')} - "
+                f"{m.get('description', '')}"
+            )
+            method_reqs.append(m_desc)
 
-            # Parse parameters for validation
-            param_list = [p.strip().split(':')[0].strip() for p in params.split(',') if p.strip()] if params else []
+        requirements = [
+            f"Service-Name: {name}",
+            f"Beschreibung: {description}",
+            "Thread-Safety mit threading.Lock",
+            "Singleton-Pattern mit get_*_service() Funktion",
+            "initialize() und shutdown() Methoden",
+            "Vollständige Implementierung aller Methoden",
+        ] + method_reqs
 
-            methods_code += f'''
-    def {method_name}(self{", " + params if params else ""}) -> {returns}:
-        """
-        {method_desc}
+        if init_vars:
+            requirements.append(f"Initialisierungs-Variablen: {', '.join(init_vars)}")
 
-        Returns:
-            {returns}: Ergebnis der Operation
-        """
-        with self._lock:
-            if not self._initialized:
-                raise RuntimeError("{service_name} Service nicht initialisiert")
+        from backend.autonomy.ai_programmer import ProgrammingTask
 
-            start_time = datetime.now()
-
-            try:
-                # Validiere Parameter
-                {self._generate_param_validation(param_list)}
-
-                # Führe Operation aus
-                result = self._execute_{method_name}({", ".join(param_list)})
-
-                # Logge Erfolg
-                duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-                print(f"[OK] {method_name} completed in {{duration_ms:.1f}}ms")
-
-                return result
-
-            except Exception as e:
-                print(f"[ERROR] {method_name} failed: {{e}}")
-                raise
-
-    def _execute_{method_name}(self{", " + params if params else ""}) -> {returns}:
-        """Interne Implementierung von {method_name}"""
-        # Implementiere die Kernlogik hier
-        return None
-'''
-
-        # Generate initialization code
-        init_code = f'''            # Lade Konfiguration
-            from backend.config import Config
-            self._config = Config
-
-            # Initialisiere Ressourcen
-            self._cache = {{}}
-            self._stats = {{"calls": 0, "errors": 0, "total_time_ms": 0}}
-
-            print(f"[INIT] {service_name} Service Ressourcen geladen")'''
-
-        content = SERVICE_TEMPLATE.format(
-            service_name=service_name,
-            service_name_lower=service_name_lower,
-            class_name=class_name,
-            description=description,
-            timestamp=timestamp,
-            init_vars=init_vars_code,
-            init_code=init_code,
-            methods=methods_code,
+        task = ProgrammingTask(
+            description=f"Erstelle einen vollständigen {name} Service. {description}",
+            requirements=requirements,
+            constraints=[
+                "Keine pass-Statements",
+                "Echte Implementierung für alle Methoden",
+                "Fehlerbehandlung in allen Methoden",
+            ],
+            target_file=f"backend/services/{service_name_lower}.py",
+            context_files=[
+                "backend/services/hardware_monitor.py",
+                "backend/services/job_queue.py",
+            ],
         )
 
-        file_path = f"backend/services/{service_name_lower}.py"
+        ai = self._get_ai_programmer()
+        program = ai.write_program(task, auto_deploy=False, require_tests=True)
 
         generated = GeneratedCode(
-            file_path=file_path,
-            content=content,
+            file_path=task.target_file,
+            content=program.code,
             description=f"Service für {description}",
             imports_needed=[],
             dependencies=[],
         )
 
         self._generated_files.append(generated)
-
         return generated
 
     def generate_capability(self, capability_name: str, capability_info: dict) -> Optional[GeneratedCode]:
         """
-        Generiert Code für eine fehlende Fähigkeit
+        Generiert Code für eine fehlende Fähigkeit.
 
         Args:
             capability_name: Name der Fähigkeit
@@ -710,28 +284,21 @@ def {func_name}():
         category = capability_info.get("category", "")
         description = capability_info.get("description", "")
 
-        # Decide what type of code to generate
         if category in ["llm", "image", "audio", "video", "code", "vision", "embeddings", "document", "3d"]:
-            # Generate worker method or extension
             return self._generate_worker_extension(capability_name, description, category)
-
         elif category == "automation":
-            # Generate automation service
             return self.generate_service(
                 name=capability_name.replace("_", " ").title(),
                 description=description,
                 methods=[{"name": capability_name, "description": description}],
             )
-
         elif category == "integration":
-            # Generate integration
             return self._generate_integration(capability_name, description)
 
         return None
 
     def _generate_worker_extension(self, capability: str, description: str, category: str) -> GeneratedCode:
-        """Generiert eine Worker-Erweiterung"""
-        # Find existing worker for this category
+        """Generiert eine Worker-Erweiterung mit ECHTER KI."""
         worker_mapping = {
             "llm": "llm_inference",
             "image": "image_gen",
@@ -745,107 +312,59 @@ def {func_name}():
         }
 
         worker_file = worker_mapping.get(category, "base_worker")
-        method_code = self._generate_method(capability, category)
+
+        from backend.autonomy.ai_programmer import ProgrammingTask
+
+        task = ProgrammingTask(
+            description=f"Erweitere den {worker_file} Worker um die Fähigkeit: {capability}. {description}",
+            requirements=[
+                f"Neue Methode: {capability}",
+                "Vollständige Implementierung",
+                "Kompatibel mit existierendem Worker",
+                "Dokumentation (Docstring)",
+            ],
+            target_file=f"backend/workers/{worker_file}.py",
+            modify_existing=True,
+        )
+
+        ai = self._get_ai_programmer()
+        program = ai.write_program(task, auto_deploy=False)
 
         return GeneratedCode(
-            file_path=f"backend/workers/{worker_file}.py",
-            content=method_code,
+            file_path=task.target_file,
+            content=program.code,
             description=f"Erweiterung für {description}",
             imports_needed=[],
             dependencies=[],
         )
 
     def _generate_integration(self, name: str, description: str) -> GeneratedCode:
-        """Generiert eine Integration"""
+        """Generiert eine Integration mit ECHTER KI."""
         integration_name = name.replace("integration_", "")
 
-        content = f'''#!/usr/bin/env python3
-"""
-SCIO - {integration_name.title()} Integration
-{description}
-Automatisch generiert von SCIO Autonomy System
-"""
+        from backend.autonomy.ai_programmer import ProgrammingTask
 
-import os
-import httpx
-from typing import Optional, Dict, Any
+        task = ProgrammingTask(
+            description=f"Erstelle eine {integration_name} Integration für SCIO. {description}",
+            requirements=[
+                f"Integration-Name: {integration_name}",
+                "API-Key aus Umgebungsvariablen",
+                "Enable/Disable via Umgebungsvariable",
+                "httpx für HTTP Requests",
+                "get() und post() Methoden",
+                "get_status() Methode",
+                "Singleton-Pattern",
+                "Vollständige Fehlerbehandlung",
+            ],
+            target_file=f"backend/integrations/{integration_name}.py",
+        )
 
-
-class {integration_name.title()}Integration:
-    """
-    {integration_name.title()} Integration
-
-    {description}
-    """
-
-    def __init__(self):
-        self.api_key = os.getenv("{integration_name.upper()}_API_KEY")
-        self.enabled = os.getenv("{integration_name.upper()}_ENABLED", "false").lower() == "true"
-        self._client = None
-
-    def initialize(self) -> bool:
-        """Initialisiert die Integration"""
-        if not self.enabled:
-            print(f"[INFO] {integration_name.title()} Integration deaktiviert")
-            return False
-
-        if not self.api_key:
-            print(f"[WARN] {integration_name.upper()}_API_KEY nicht gesetzt")
-            return False
-
-        self._client = httpx.Client(timeout=30)
-        print(f"[OK] {integration_name.title()} Integration initialisiert")
-        return True
-
-    def get(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
-        """GET Request an die API"""
-        if not self._client:
-            return {{"error": "Integration nicht initialisiert"}}
-        try:
-            response = self._client.get(endpoint, params=params)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            return {{"error": str(e)}}
-
-    def post(self, endpoint: str, data: Dict[str, Any] = None) -> Dict[str, Any]:
-        """POST Request an die API"""
-        if not self._client:
-            return {{"error": "Integration nicht initialisiert"}}
-        try:
-            response = self._client.post(endpoint, json=data)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            return {{"error": str(e)}}
-
-    def get_status(self) -> Dict[str, Any]:
-        """Gibt Status der Integration zurück"""
-        return {{
-            "enabled": self.enabled,
-            "initialized": self._client is not None,
-            "api_key_set": bool(self.api_key),
-        }}
-
-    def shutdown(self):
-        """Beendet die Integration"""
-        if self._client:
-            self._client.close()
-
-
-# Singleton
-_{integration_name}_integration = None
-
-def get_{integration_name}_integration():
-    global _{integration_name}_integration
-    if _{integration_name}_integration is None:
-        _{integration_name}_integration = {integration_name.title()}Integration()
-    return _{integration_name}_integration
-'''
+        ai = self._get_ai_programmer()
+        program = ai.write_program(task, auto_deploy=False)
 
         return GeneratedCode(
-            file_path=f"backend/integrations/{integration_name}.py",
-            content=content,
+            file_path=task.target_file,
+            content=program.code,
             description=f"Integration für {description}",
             imports_needed=["httpx"],
             dependencies=[],
@@ -853,7 +372,7 @@ def get_{integration_name}_integration():
 
     def save_generated(self, generated: GeneratedCode, backup: bool = True) -> bool:
         """
-        Speichert generierten Code
+        Speichert generierten Code.
 
         Args:
             generated: GeneratedCode Objekt
@@ -865,15 +384,11 @@ def get_{integration_name}_integration():
         try:
             file_path = self.base_path / generated.file_path
 
-            # Create backup if file exists
             if backup and file_path.exists():
                 backup_path = file_path.with_suffix(f".py.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}")
                 backup_path.write_text(file_path.read_text(encoding='utf-8'), encoding='utf-8')
 
-            # Ensure directory exists
             file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write file
             file_path.write_text(generated.content, encoding='utf-8')
 
             if self.memory:
@@ -899,7 +414,7 @@ def get_{integration_name}_integration():
 
     def fix_syntax(self, code: str, error_info: dict) -> dict:
         """
-        Repariert Syntax-Fehler im Code
+        Repariert Syntax-Fehler im Code mit ECHTER KI.
 
         Args:
             code: Der Code mit Syntax-Fehler
@@ -908,60 +423,30 @@ def get_{integration_name}_integration():
         Returns:
             dict mit success und code
         """
+        from backend.autonomy.ai_programmer import ProgrammingTask
+
+        error_line = error_info.get('line', 1)
+        error_msg = error_info.get('message', 'Syntax error')
+
+        task = ProgrammingTask(
+            description=f"Repariere den Syntax-Fehler in Zeile {error_line}: {error_msg}",
+            existing_code=code,
+            modify_existing=True,
+            constraints=[
+                "Nur den Fehler beheben",
+                "Keine anderen Änderungen",
+                "Gleiche Funktionalität beibehalten",
+            ],
+        )
+
         try:
-            lines = code.split('\n')
-            error_line = error_info.get('line', 1) - 1
-            error_msg = error_info.get('message', '')
+            ai = self._get_ai_programmer()
+            program = ai.write_program(task, auto_deploy=False)
 
-            # Common syntax fixes
-            if 0 <= error_line < len(lines):
-                line = lines[error_line]
-
-                # Fix missing colons
-                if 'expected \":\"' in error_msg.lower() or 'invalid syntax' in error_msg.lower():
-                    # Check for def, class, if, for, while, try, except, with without colon
-                    keywords = ['def ', 'class ', 'if ', 'elif ', 'else', 'for ', 'while ', 'try', 'except', 'finally', 'with ']
-                    for kw in keywords:
-                        if kw in line and not line.rstrip().endswith(':'):
-                            lines[error_line] = line.rstrip() + ':'
-                            break
-
-                # Fix unmatched parentheses
-                if 'unmatched' in error_msg.lower() or 'unexpected EOF' in error_msg.lower():
-                    open_parens = line.count('(') - line.count(')')
-                    open_brackets = line.count('[') - line.count(']')
-                    open_braces = line.count('{') - line.count('}')
-
-                    if open_parens > 0:
-                        lines[error_line] = line.rstrip() + ')' * open_parens
-                    if open_brackets > 0:
-                        lines[error_line] = line.rstrip() + ']' * open_brackets
-                    if open_braces > 0:
-                        lines[error_line] = line.rstrip() + '}' * open_braces
-
-                # Fix indentation errors
-                if 'indent' in error_msg.lower():
-                    # Try to match previous line's indentation
-                    if error_line > 0:
-                        prev_line = lines[error_line - 1]
-                        prev_indent = len(prev_line) - len(prev_line.lstrip())
-                        current_content = line.lstrip()
-                        # Check if prev line ends with colon (needs more indent)
-                        if prev_line.rstrip().endswith(':'):
-                            lines[error_line] = ' ' * (prev_indent + 4) + current_content
-                        else:
-                            lines[error_line] = ' ' * prev_indent + current_content
-
-            fixed_code = '\n'.join(lines)
-
-            # Verify the fix worked
-            import ast
-            try:
-                ast.parse(fixed_code)
-                return {'success': True, 'code': fixed_code}
-            except SyntaxError:
-                # If still broken, return original with note
-                return {'success': False, 'code': code, 'error': 'Could not auto-fix syntax'}
+            if program.test_results.get('syntax_ok', False):
+                return {'success': True, 'code': program.code}
+            else:
+                return {'success': False, 'code': code, 'error': 'Could not fix syntax'}
 
         except Exception as e:
             return {'success': False, 'code': code, 'error': str(e)}
@@ -970,11 +455,11 @@ def get_{integration_name}_integration():
                         parameters: List[str] = None, return_type: str = 'None',
                         docstring: str = None) -> dict:
         """
-        Generiert eine Python-Methode
+        Generiert eine Python-Methode mit ECHTER KI.
 
         Args:
             method_name: Name der Methode
-            class_name: Optionaler Klassenname (für Instanz-Methoden)
+            class_name: Optionaler Klassenname
             parameters: Liste der Parameter
             return_type: Rückgabetyp
             docstring: Dokumentation
@@ -982,38 +467,39 @@ def get_{integration_name}_integration():
         Returns:
             dict mit success und code
         """
+        from backend.autonomy.ai_programmer import ProgrammingTask
+
+        params_str = ", ".join(parameters) if parameters else ""
+        desc = docstring or f"{method_name} method"
+
+        if class_name:
+            task_desc = f"Erstelle eine Instanz-Methode {method_name} für die Klasse {class_name}"
+        else:
+            task_desc = f"Erstelle eine Funktion {method_name}"
+
+        task = ProgrammingTask(
+            description=f"{task_desc}. {desc}",
+            requirements=[
+                f"Methodenname: {method_name}",
+                f"Parameter: {params_str}" if params_str else "Keine Parameter",
+                f"Rückgabetyp: {return_type}",
+                "Vollständige Implementierung",
+                "Keine pass-Statements",
+            ],
+        )
+
         try:
-            params = parameters or []
+            ai = self._get_ai_programmer()
+            program = ai.write_program(task, auto_deploy=False)
 
-            # Build parameter string
-            if class_name:
-                # Instance method - add self
-                param_str = 'self'
-                if params:
-                    param_str += ', ' + ', '.join(params)
-            else:
-                param_str = ', '.join(params) if params else ''
-
-            # Build docstring
-            doc = docstring or f'{method_name} method'
-            doc_lines = f'"""{doc}"""'
-
-            # Generate method code
-            indent = '    ' if class_name else ''
-            code = f'''{indent}def {method_name}({param_str}) -> {return_type}:
-{indent}    {doc_lines}
-{indent}    # Auto-generated implementation
-{indent}    pass
-'''
-
-            return {'success': True, 'code': code, 'method_name': method_name}
+            return {'success': True, 'code': program.code, 'method_name': method_name}
 
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
     def insert_method(self, file_path: str, class_name: str, method_code: str) -> dict:
         """
-        Fügt eine Methode in eine bestehende Klasse ein
+        Fügt eine Methode in eine bestehende Klasse ein.
 
         Args:
             file_path: Pfad zur Python-Datei
@@ -1024,9 +510,6 @@ def get_{integration_name}_integration():
             dict mit success
         """
         try:
-            from pathlib import Path
-            import re
-
             path = Path(file_path)
             if not path.exists():
                 return {'success': False, 'error': f'File not found: {file_path}'}
@@ -1040,7 +523,7 @@ def get_{integration_name}_integration():
             if not match:
                 return {'success': False, 'error': f'Class not found: {class_name}'}
 
-            # Find the end of the class (next class definition or end of file)
+            # Find the end of the class
             class_start = match.start()
             lines = content.split('\n')
 
@@ -1051,24 +534,22 @@ def get_{integration_name}_integration():
                 if char_count >= class_start:
                     class_line = i
                     break
-                char_count += len(line) + 1  # +1 for newline
+                char_count += len(line) + 1
 
             # Find class indentation
             class_indent = len(lines[class_line]) - len(lines[class_line].lstrip())
 
-            # Find last method in class (look for def at class_indent + 4)
+            # Find last method in class
             insert_line = class_line + 1
             for i in range(class_line + 1, len(lines)):
                 line = lines[i]
                 if line.strip():
                     line_indent = len(line) - len(line.lstrip())
                     if line_indent <= class_indent and not line.strip().startswith('#'):
-                        # Found end of class
                         insert_line = i
                         break
                     if line.lstrip().startswith('def '):
                         insert_line = i + 1
-                        # Find end of this method
                         for j in range(i + 1, len(lines)):
                             next_line = lines[j]
                             if next_line.strip():
@@ -1080,7 +561,6 @@ def get_{integration_name}_integration():
 
             # Insert the method code
             method_lines = method_code.split('\n')
-            # Ensure proper indentation
             indented_method = []
             for line in method_lines:
                 if line.strip():
@@ -1088,12 +568,10 @@ def get_{integration_name}_integration():
                 else:
                     indented_method.append('')
 
-            # Add blank line before method
             lines.insert(insert_line, '')
             for i, method_line in enumerate(indented_method):
                 lines.insert(insert_line + 1 + i, method_line)
 
-            # Write back
             new_content = '\n'.join(lines)
             path.write_text(new_content, encoding='utf-8')
 
