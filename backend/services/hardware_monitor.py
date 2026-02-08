@@ -8,10 +8,14 @@ Verwendet nvidia-smi fuer zuverlaessiges GPU-Monitoring
 import time
 import threading
 import subprocess
+import logging
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional, Callable, List
 import psutil
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -169,11 +173,15 @@ class HardwareMonitor:
             if result.returncode == 0:
                 self._nvidia_smi_available = True
                 self._gpu_count = len(result.stdout.strip().split('\n'))
-                print(f"[OK] nvidia-smi verfuegbar - {self._gpu_count} GPU(s) gefunden")
+                logger.info(f"nvidia-smi verfuegbar - {self._gpu_count} GPU(s) gefunden")
             else:
-                print("[WARN] nvidia-smi nicht verfuegbar")
+                logger.warning("nvidia-smi nicht verfuegbar")
+        except subprocess.TimeoutExpired:
+            logger.warning("nvidia-smi Timeout bei Initialisierung")
+        except FileNotFoundError:
+            logger.info("nvidia-smi nicht installiert - GPU-Monitoring deaktiviert")
         except Exception as e:
-            print(f"[WARN] nvidia-smi Fehler: {e}")
+            logger.warning(f"nvidia-smi Fehler: {e}")
 
     def add_callback(self, callback: Callable[[SystemStatus], None]):
         """Registriert Callback fuer Status-Updates"""
@@ -306,13 +314,15 @@ class HardwareMonitor:
                     ))
 
                 except Exception as e:
-                    print(f"[WARN] GPU Parse Error: {e}")
+                    logger.debug(f"GPU Parse Error fuer GPU {idx}: {e}")
                     continue
 
         except subprocess.TimeoutExpired:
-            print("[WARN] nvidia-smi timeout")
+            logger.warning("nvidia-smi timeout beim Abfragen der GPU-Daten")
+        except ET.ParseError as e:
+            logger.warning(f"nvidia-smi XML Parse-Fehler: {e}")
         except Exception as e:
-            print(f"[WARN] nvidia-smi error: {e}")
+            logger.warning(f"nvidia-smi Fehler: {e}")
 
         return gpus
 
@@ -376,18 +386,26 @@ class HardwareMonitor:
 
     def _monitor_loop(self):
         """Monitoring Loop"""
+        consecutive_errors = 0
+        max_consecutive_errors = 10
+
         while self._running:
             try:
                 status = self.get_status()
+                consecutive_errors = 0  # Reset on success
 
                 for callback in self._callbacks:
                     try:
                         callback(status)
                     except Exception as e:
-                        pass
+                        logger.debug(f"Callback Fehler: {e}")
 
             except Exception as e:
-                pass
+                consecutive_errors += 1
+                if consecutive_errors <= 3:
+                    logger.warning(f"Hardware Monitor Loop Fehler: {e}")
+                elif consecutive_errors == max_consecutive_errors:
+                    logger.error(f"Hardware Monitor: {max_consecutive_errors} aufeinanderfolgende Fehler - reduziere Log-Level")
 
             time.sleep(self.update_interval)
 
@@ -399,7 +417,7 @@ class HardwareMonitor:
         self._running = True
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._thread.start()
-        print("[OK] Hardware Monitor gestartet")
+        logger.info("Hardware Monitor gestartet")
 
     def stop(self):
         """Stoppt den Monitor"""
@@ -407,7 +425,7 @@ class HardwareMonitor:
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
-        print("[STOP] Hardware Monitor gestoppt")
+        logger.info("Hardware Monitor gestoppt")
 
     @property
     def last_status(self) -> Optional[SystemStatus]:
