@@ -89,7 +89,7 @@ class ToolInfo(BaseModel):
     name: str
     version: str
     description: Optional[str] = None
-    schema: dict[str, Any]
+    tool_schema: dict[str, Any]
 
 
 # --- Routes ---
@@ -249,7 +249,7 @@ async def list_tools() -> list[ToolInfo]:
                 name=tool_name,
                 version=getattr(tool, "version", "1.0"),
                 description=tool.config.description,
-                schema=tool.get_schema(),
+                tool_schema=tool.get_schema(),
             )
         )
 

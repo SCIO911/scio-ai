@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Generic, Optional, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from scio.core.logging import get_logger
 from scio.core.utils import generate_id, now_utc
@@ -34,15 +34,14 @@ class AgentState(str, Enum):
 class AgentConfig(BaseModel):
     """Basis-Konfiguration für Agenten."""
 
+    model_config = ConfigDict(extra="allow")
+
     name: str = Field(..., description="Name des Agenten")
     description: Optional[str] = Field(default=None)
     max_iterations: int = Field(default=100, ge=1)
     timeout_seconds: int = Field(default=300, ge=1)
     retry_on_failure: bool = Field(default=True)
     max_retries: int = Field(default=3, ge=0)
-
-    class Config:
-        extra = "allow"
 
 
 @dataclass

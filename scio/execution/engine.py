@@ -263,11 +263,94 @@ class ExecutionEngine:
         return result
 
     def _evaluate_condition(self, condition: str, context: dict[str, Any]) -> bool:
-        """Evaluiert eine Step-Bedingung."""
-        # Sichere Evaluation - nur einfache Vergleiche erlaubt
-        # TODO: Implementiere sichere Expression-Engine
-        self.logger.warning("Condition evaluation not yet implemented", condition=condition)
-        return True
+        """
+        Evaluiert eine Step-Bedingung sicher.
+
+        Unterstützte Operatoren: ==, !=, <, >, <=, >=, and, or, not
+        Unterstützte Werte: Zahlen, Strings, Booleans, Variablen aus context
+        """
+        import ast
+        import operator
+
+        # Erlaubte Operatoren
+        SAFE_OPERATORS = {
+            ast.Eq: operator.eq,
+            ast.NotEq: operator.ne,
+            ast.Lt: operator.lt,
+            ast.LtE: operator.le,
+            ast.Gt: operator.gt,
+            ast.GtE: operator.ge,
+            ast.And: lambda a, b: a and b,
+            ast.Or: lambda a, b: a or b,
+            ast.Not: operator.not_,
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+        }
+
+        def safe_eval(node):
+            """Rekursive sichere Evaluation."""
+            if isinstance(node, ast.Expression):
+                return safe_eval(node.body)
+            elif isinstance(node, ast.Constant):
+                return node.value
+            elif isinstance(node, ast.Name):
+                if node.id in context:
+                    return context[node.id]
+                elif node.id == 'True':
+                    return True
+                elif node.id == 'False':
+                    return False
+                elif node.id == 'None':
+                    return None
+                else:
+                    raise ValueError(f"Unbekannte Variable: {node.id}")
+            elif isinstance(node, ast.Compare):
+                left = safe_eval(node.left)
+                for op, comparator in zip(node.ops, node.comparators):
+                    op_func = SAFE_OPERATORS.get(type(op))
+                    if op_func is None:
+                        raise ValueError(f"Nicht erlaubter Operator: {type(op).__name__}")
+                    right = safe_eval(comparator)
+                    if not op_func(left, right):
+                        return False
+                    left = right
+                return True
+            elif isinstance(node, ast.BoolOp):
+                op_func = SAFE_OPERATORS.get(type(node.op))
+                if op_func is None:
+                    raise ValueError(f"Nicht erlaubter Operator: {type(node.op).__name__}")
+                values = [safe_eval(v) for v in node.values]
+                result = values[0]
+                for v in values[1:]:
+                    result = op_func(result, v)
+                return result
+            elif isinstance(node, ast.UnaryOp):
+                if isinstance(node.op, ast.Not):
+                    return not safe_eval(node.operand)
+                raise ValueError(f"Nicht erlaubter Operator: {type(node.op).__name__}")
+            elif isinstance(node, ast.BinOp):
+                op_func = SAFE_OPERATORS.get(type(node.op))
+                if op_func is None:
+                    raise ValueError(f"Nicht erlaubter Operator: {type(node.op).__name__}")
+                return op_func(safe_eval(node.left), safe_eval(node.right))
+            elif isinstance(node, ast.Subscript):
+                value = safe_eval(node.value)
+                if isinstance(node.slice, ast.Constant):
+                    return value[node.slice.value]
+                raise ValueError("Nur konstante Subscripts erlaubt")
+            else:
+                raise ValueError(f"Nicht erlaubter Node-Typ: {type(node).__name__}")
+
+        try:
+            tree = ast.parse(condition, mode='eval')
+            result = safe_eval(tree)
+            self.logger.debug("Condition evaluated", condition=condition, result=result)
+            return bool(result)
+        except Exception as e:
+            self.logger.error("Condition evaluation failed", condition=condition, error=str(e))
+            return False
 
     async def cancel(self, execution_id: str) -> bool:
         """Bricht eine laufende Ausführung ab."""

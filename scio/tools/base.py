@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Generic, Optional, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from scio.core.logging import get_logger
 
@@ -21,13 +21,12 @@ OutputT = TypeVar("OutputT")
 class ToolConfig(BaseModel):
     """Basis-Konfiguration für Tools."""
 
+    model_config = ConfigDict(extra="allow")
+
     name: str = Field(..., description="Tool-Name")
     description: Optional[str] = Field(default=None)
     timeout_seconds: int = Field(default=60, ge=1)
     requires_sandbox: bool = Field(default=True)
-
-    class Config:
-        extra = "allow"
 
 
 @dataclass

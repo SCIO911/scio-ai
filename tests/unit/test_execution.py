@@ -25,6 +25,41 @@ class TestExecutionEngine:
         engine.register_step_handler("test", dummy_handler)
         assert "test" in engine._step_handlers
 
+    def test_evaluate_condition_comparison(self):
+        """Testet Bedingungsauswertung mit Vergleichen."""
+        engine = ExecutionEngine()
+
+        assert engine._evaluate_condition("x > 5", {"x": 10}) == True
+        assert engine._evaluate_condition("x > 5", {"x": 3}) == False
+        assert engine._evaluate_condition("x == 5", {"x": 5}) == True
+        assert engine._evaluate_condition("x != 5", {"x": 3}) == True
+        assert engine._evaluate_condition("x <= 10", {"x": 10}) == True
+        assert engine._evaluate_condition("x >= 10", {"x": 10}) == True
+
+    def test_evaluate_condition_logical(self):
+        """Testet Bedingungsauswertung mit logischen Operatoren."""
+        engine = ExecutionEngine()
+
+        assert engine._evaluate_condition("x > 5 and y < 10", {"x": 6, "y": 8}) == True
+        assert engine._evaluate_condition("x > 5 and y < 10", {"x": 6, "y": 12}) == False
+        assert engine._evaluate_condition("x > 5 or y < 10", {"x": 3, "y": 8}) == True
+        assert engine._evaluate_condition("not x", {"x": False}) == True
+
+    def test_evaluate_condition_strings(self):
+        """Testet Bedingungsauswertung mit Strings."""
+        engine = ExecutionEngine()
+
+        assert engine._evaluate_condition('status == "completed"', {"status": "completed"}) == True
+        assert engine._evaluate_condition('status != "failed"', {"status": "completed"}) == True
+
+    def test_evaluate_condition_invalid(self):
+        """Testet Bedingungsauswertung mit ungültigen Ausdrücken."""
+        engine = ExecutionEngine()
+
+        # Ungültige Ausdrücke geben False zurück
+        assert engine._evaluate_condition("undefined_var > 5", {}) == False
+        assert engine._evaluate_condition("invalid syntax !!!", {}) == False
+
 
 class TestSandbox:
     """Tests für Sandbox."""
