@@ -109,11 +109,13 @@ class AgentRegistry:
         import scio.agents.builtin.reporter as reporter
         import scio.agents.builtin.llm_agent as llm_agent
         import scio.agents.builtin.transformer as transformer
+        import scio.agents.builtin.python_expert as python_expert
         importlib.reload(data_loader)
         importlib.reload(analyzer)
         importlib.reload(reporter)
         importlib.reload(llm_agent)
         importlib.reload(transformer)
+        importlib.reload(python_expert)
         # Then reload the main module
         import scio.agents.builtin as builtin_module
         importlib.reload(builtin_module)

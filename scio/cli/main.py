@@ -322,5 +322,118 @@ def tools() -> None:
     console.print()
 
 
+@app.command()
+def python(
+    action: str = typer.Argument("explain", help="Aktion: explain, analyze, generate, debug, improve, search, modules"),
+    query: str = typer.Argument("", help="Suchanfrage oder Code"),
+    code_file: Optional[Path] = typer.Option(None, "--file", "-f", help="Python-Datei zum Analysieren"),
+) -> None:
+    """Python-Experte: Erklaert, analysiert und generiert Python-Code."""
+    import asyncio
+    from scio.agents.builtin import PythonExpertAgent
+    from scio.agents.base import AgentContext
+
+    agent = PythonExpertAgent({"name": "python_expert"})
+    ctx = AgentContext(agent_id="cli", execution_id="cli")
+
+    # Code aus Datei laden
+    code = ""
+    if code_file and code_file.exists():
+        code = code_file.read_text(encoding="utf-8")
+
+    async def run_action():
+        if action == "explain":
+            if not query:
+                console.print("[yellow]Gib ein Konzept an: scio python explain list[/yellow]")
+                return
+            result = await agent.execute({"action": "explain", "query": query}, ctx)
+            console.print(f"\n[bold]Python: {query}[/bold]\n")
+            for item in result.get("results", [])[:10]:
+                console.print(f"  [cyan]{item['category']}[/cyan]: [green]{item['name']}[/green]")
+                if "description" in item:
+                    console.print(f"    {item['description']}")
+                if "code" in item:
+                    console.print(f"    [dim]{item['code'][:100]}...[/dim]")
+
+        elif action == "analyze":
+            if not code and not query:
+                console.print("[yellow]Gib Code an: scio python analyze 'def foo(): pass' oder --file script.py[/yellow]")
+                return
+            code_to_analyze = code or query
+            result = await agent.execute({"action": "analyze", "code": code_to_analyze}, ctx)
+            console.print(f"\n[bold]Code-Analyse[/bold]\n")
+            info = result.get("info", {})
+            console.print(f"  Zeilen: {info.get('lines', 0)}, Funktionen: {info.get('functions', 0)}, Klassen: {info.get('classes', 0)}")
+            console.print(f"  Gueltig: {OK if result.get('valid') else FAIL}")
+            for issue in result.get("issues", []):
+                color = "red" if issue.get("type") == "error" else "yellow"
+                console.print(f"  [{color}]{issue.get('type', 'issue')}[/{color}]: {issue.get('message')}")
+            for sug in result.get("suggestions", [])[:5]:
+                console.print(f"  [dim]Vorschlag: {sug.get('message')}[/dim]")
+
+        elif action == "generate":
+            if not query:
+                console.print("[yellow]Verfuegbare Templates: class, function, dataclass, decorator, async_function, unittest, cli, api_client, singleton, factory, observer[/yellow]")
+                return
+            result = await agent.execute({"action": "generate", "query": query}, ctx)
+            if "code" in result:
+                console.print(f"\n[bold]Template: {result.get('template_type')}[/bold]\n")
+                console.print(result["code"])
+            else:
+                console.print(f"\n[yellow]{result.get('message')}[/yellow]")
+
+        elif action == "debug":
+            if not code and not query:
+                console.print("[yellow]Gib Code und Fehler an: scio python debug 'code' --file error.py[/yellow]")
+                return
+            result = await agent.execute({
+                "action": "debug",
+                "code": code or "",
+                "error": query or "",
+            }, ctx)
+            console.print(f"\n[bold]Debug-Hilfe[/bold]\n")
+            for sug in result.get("suggestions", []):
+                console.print(f"  {BULLET} {sug}")
+
+        elif action == "improve":
+            if not code and not query:
+                console.print("[yellow]Gib Code an: scio python improve --file script.py[/yellow]")
+                return
+            result = await agent.execute({"action": "improve", "code": code or query}, ctx)
+            console.print(f"\n[bold]Verbesserungsvorschlaege[/bold]\n")
+            for imp in result.get("improvements", [])[:10]:
+                console.print(f"  Zeile {imp.get('line', '?')}: {imp.get('suggestion')}")
+                if "example" in imp:
+                    console.print(f"    [dim]Beispiel: {imp['example']}[/dim]")
+
+        elif action == "search":
+            if not query:
+                console.print("[yellow]Gib einen Suchbegriff an: scio python search async[/yellow]")
+                return
+            result = await agent.execute({"action": "search", "query": query}, ctx)
+            console.print(f"\n[bold]Suche: {query} ({result.get('total', 0)} Ergebnisse)[/bold]\n")
+            for item in result.get("results", [])[:15]:
+                console.print(f"  [cyan]{item['category']}[/cyan]: [green]{item['key']}[/green]")
+                if item.get("value"):
+                    console.print(f"    {item['value'][:80]}")
+
+        elif action == "modules":
+            result = await agent.execute({"action": "list_modules"}, ctx)
+            console.print(f"\n[bold]Python Stdlib Module ({result.get('total', 0)})[/bold]\n")
+            modules = result.get("modules", [])
+            # In Spalten anzeigen
+            cols = 4
+            for i in range(0, len(modules), cols):
+                row = modules[i:i+cols]
+                console.print("  " + "  ".join(f"[cyan]{m:15}[/cyan]" for m in row))
+
+        else:
+            console.print(f"[red]Unbekannte Aktion: {action}[/red]")
+            console.print("Verfuegbar: explain, analyze, generate, debug, improve, search, modules")
+
+    asyncio.run(run_action())
+    console.print()
+
+
 if __name__ == "__main__":
     app()
