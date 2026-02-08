@@ -22,7 +22,10 @@ class SandboxConfig:
     enabled: bool = True
     allowed_paths: list[Path] = field(default_factory=list)
     blocked_modules: list[str] = field(
-        default_factory=lambda: ["os.system", "subprocess", "eval", "exec"]
+        default_factory=lambda: ["os", "subprocess", "shutil", "socket", "ctypes", "multiprocessing"]
+    )
+    safe_modules: list[str] = field(
+        default_factory=lambda: ["json", "math", "re", "datetime", "collections", "itertools", "functools", "typing", "dataclasses", "enum", "copy", "io", "base64", "hashlib", "random", "statistics", "decimal", "fractions"]
     )
     network_enabled: bool = False
     max_memory_mb: int = 1024
@@ -129,6 +132,32 @@ class Sandbox:
                     details={"module": module_name, "blocked_pattern": blocked},
                 )
 
+        return True
+
+    def check_module_allowed(self, module_name: str) -> bool:
+        """
+        Prüft ob ein Modul in der Sandbox erlaubt ist.
+
+        Args:
+            module_name: Name des Moduls
+
+        Returns:
+            True wenn Modul erlaubt, False wenn blockiert
+        """
+        if not self.config.enabled:
+            return True
+
+        # Check if in safe list
+        base_module = module_name.split(".")[0]
+        if base_module in self.config.safe_modules:
+            return True
+
+        # Check if blocked
+        for blocked in self.config.blocked_modules:
+            if module_name == blocked or module_name.startswith(f"{blocked}."):
+                return False
+
+        # Default: allow if not explicitly blocked
         return True
 
     def check_network_access(self, host: str, port: int) -> bool:

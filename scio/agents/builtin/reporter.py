@@ -66,9 +66,10 @@ class ReporterAgent(Agent[dict[str, Any], dict[str, Any]]):
             report["metadata"] = {
                 "agent": self.agent_type,
                 "version": self.version,
-                "experiment": context.experiment_name,
-                "execution_id": context.execution_id,
             }
+            if context:
+                report["metadata"]["experiment"] = getattr(context, 'experiment_name', 'unknown')
+                report["metadata"]["execution_id"] = getattr(context, 'execution_id', 'unknown')
 
         # Formatiere Report
         if format_override == "json":

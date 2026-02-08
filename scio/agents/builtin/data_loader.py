@@ -45,11 +45,33 @@ class DataLoaderAgent(Agent[dict[str, Any], dict[str, Any]]):
     async def execute(
         self, input_data: dict[str, Any], context: AgentContext
     ) -> dict[str, Any]:
-        """Lädt Daten aus einer Datei."""
+        """Lädt Daten aus einer Datei oder direkt aus dem Input."""
+
+        # Support für direkte Daten-Eingabe
+        if "data" in input_data:
+            data = input_data["data"]
+            fmt = input_data.get("format", "json")
+
+            # Parse string data based on format
+            if isinstance(data, str):
+                if fmt == "json":
+                    data = json.load(__import__("io").StringIO(data)) if data.strip().startswith(("{", "[")) else data
+                    try:
+                        data = json.loads(data) if isinstance(data, str) else data
+                    except json.JSONDecodeError:
+                        pass
+
+            return {
+                "data": data,
+                "metadata": {
+                    "source": "inline",
+                    "format": fmt,
+                },
+            }
 
         path = input_data.get("path")
         if not path:
-            raise AgentError("Kein Dateipfad angegeben", agent_id=self.agent_id)
+            raise AgentError("Kein Dateipfad oder Daten angegeben", agent_id=self.agent_id)
 
         path = Path(path)
         if not path.exists():
