@@ -400,14 +400,59 @@ class Orchestrator:
                 info.status = ModuleStatus.READY
 
     def _on_any_job_event(self, event: Event):
-        """Handler für alle Job-Events"""
-        # Logging für Debugging
-        pass
+        """Handler für alle Job-Events - Logging und Statistik"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        job_id = event.data.get('job_id', 'unknown')
+        job_type = event.data.get('job_type', 'unknown')
+        status = event.data.get('status', 'unknown')
+
+        logger.debug(f"Job Event: {event.name} - Job {job_id} ({job_type}): {status}")
+
+        # Statistik aktualisieren
+        with self._lock:
+            if not hasattr(self, '_job_stats'):
+                self._job_stats = {'total': 0, 'completed': 0, 'failed': 0}
+
+            self._job_stats['total'] += 1
+            if 'completed' in event.name.lower() or status == 'completed':
+                self._job_stats['completed'] += 1
+            elif 'failed' in event.name.lower() or status == 'failed':
+                self._job_stats['failed'] += 1
 
     def _on_any_monitoring_event(self, event: Event):
-        """Handler für alle Monitoring-Events"""
-        # Kann für zentrale Monitoring-Logik verwendet werden
-        pass
+        """Handler für alle Monitoring-Events - Zentrale Monitoring-Logik"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        event_type = event.data.get('type', 'unknown')
+        severity = event.data.get('severity', 'info')
+        message = event.data.get('message', '')
+
+        # Log basierend auf Severity
+        if severity == 'critical':
+            logger.critical(f"Monitoring Alert: {event_type} - {message}")
+        elif severity == 'warning':
+            logger.warning(f"Monitoring Warning: {event_type} - {message}")
+        else:
+            logger.debug(f"Monitoring Event: {event_type} - {message}")
+
+        # Bei kritischen Events: Alert speichern
+        with self._lock:
+            if not hasattr(self, '_alerts'):
+                self._alerts = []
+
+            if severity in ['critical', 'warning']:
+                self._alerts.append({
+                    'timestamp': event.timestamp,
+                    'type': event_type,
+                    'severity': severity,
+                    'message': message
+                })
+                # Max 100 Alerts behalten
+                if len(self._alerts) > 100:
+                    self._alerts = self._alerts[-100:]
 
     def _start_health_monitoring(self):
         """Startet Health-Monitoring Thread"""

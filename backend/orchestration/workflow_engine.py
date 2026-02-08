@@ -114,6 +114,136 @@ class WorkflowEngine:
 
         self._initialized = False
         self._setup_handlers()
+        self._setup_predefined_workflows()
+
+    def _setup_predefined_workflows(self):
+        """Registriert vordefinierte Workflows"""
+        self.predefined_workflows = {
+            "image_generation": {
+                "name": "Image Generation",
+                "description": "Generiert ein Bild mit optimaler Konfiguration",
+                "steps": [
+                    {"id": "decide_model", "name": "Model auswählen", "type": "rl_action",
+                     "config": {"action_space": "worker_selection"}},
+                    {"id": "check_resources", "name": "Ressourcen prüfen", "type": "rule_check",
+                     "config": {"rule_set": "resource"}, "depends_on": ["decide_model"]},
+                    {"id": "generate", "name": "Bild generieren", "type": "tool",
+                     "config": {"tool_id": "gen_img_txt2img"}, "depends_on": ["check_resources"]}
+                ]
+            },
+            "document_processing": {
+                "name": "Document Processing",
+                "description": "Verarbeitet ein Dokument komplett",
+                "steps": [
+                    {"id": "extract_text", "name": "Text extrahieren", "type": "tool",
+                     "config": {"tool_id": "doc_pdf_read"}},
+                    {"id": "analyze", "name": "Inhalt analysieren", "type": "parallel",
+                     "config": {"steps": [
+                         {"name": "Entities", "type": "tool", "config": {"tool_id": "nlp_entity_extract"}},
+                         {"name": "Summary", "type": "tool", "config": {"tool_id": "nlp_text_summarize"}}
+                     ]}, "depends_on": ["extract_text"]}
+                ]
+            },
+            "intelligent_decision": {
+                "name": "Intelligent Decision",
+                "description": "Trifft intelligente Entscheidung mit RL und Regeln",
+                "steps": [
+                    {"id": "rl_suggest", "name": "RL Vorschlag", "type": "rl_action",
+                     "config": {"action_space": "worker_selection"}},
+                    {"id": "rule_validate", "name": "Regel-Validierung", "type": "rule_check",
+                     "config": {"rule_set": "default"}, "depends_on": ["rl_suggest"]},
+                    {"id": "final_decision", "name": "Finale Entscheidung", "type": "decision",
+                     "config": {"tree": "default"}, "depends_on": ["rule_validate"]}
+                ]
+            },
+            "full_analysis": {
+                "name": "Full Analysis Pipeline",
+                "description": "Vollständige Analyse mit allen Modulen",
+                "steps": [
+                    {"id": "plan", "name": "Plan erstellen", "type": "plan",
+                     "config": {"goal": "Analyze input data"}},
+                    {"id": "knowledge_query", "name": "Wissen abfragen", "type": "knowledge",
+                     "config": {"operation": "query"}, "depends_on": ["plan"]},
+                    {"id": "delegate", "name": "An Agent delegieren", "type": "agent_task",
+                     "config": {"description": "Analyze and report"}, "depends_on": ["knowledge_query"]}
+                ]
+            },
+            "video_generation": {
+                "name": "Video Generation",
+                "description": "Generiert Video aus Text oder Bild",
+                "steps": [
+                    {"id": "select_model", "name": "Model wählen", "type": "rl_action",
+                     "config": {"action_space": "worker_selection"}},
+                    {"id": "generate_video", "name": "Video generieren", "type": "worker",
+                     "config": {"job_type": "video_generation"}, "depends_on": ["select_model"]}
+                ]
+            },
+            "audio_pipeline": {
+                "name": "Audio Processing",
+                "description": "Verarbeitet Audio mit STT, TTS, Analyse",
+                "steps": [
+                    {"id": "transcribe", "name": "Audio transkribieren", "type": "tool",
+                     "config": {"tool_id": "audio_speech_to_text"}},
+                    {"id": "analyze_text", "name": "Text analysieren", "type": "parallel",
+                     "config": {"steps": [
+                         {"name": "Sentiment", "type": "tool", "config": {"tool_id": "nlp_sentiment_analyze"}},
+                         {"name": "Entities", "type": "tool", "config": {"tool_id": "nlp_entity_extract"}}
+                     ]}, "depends_on": ["transcribe"]}
+                ]
+            },
+            "code_generation": {
+                "name": "Code Generation",
+                "description": "Generiert und testet Code",
+                "steps": [
+                    {"id": "plan_code", "name": "Code planen", "type": "plan",
+                     "config": {"goal": "Generate code for task"}},
+                    {"id": "generate_code", "name": "Code generieren", "type": "tool",
+                     "config": {"tool_id": "code_generate"}, "depends_on": ["plan_code"]},
+                    {"id": "review_code", "name": "Code review", "type": "tool",
+                     "config": {"tool_id": "code_review"}, "depends_on": ["generate_code"]}
+                ]
+            },
+            "learning_cycle": {
+                "name": "Learning Cycle",
+                "description": "Führt einen Lernzyklus durch",
+                "steps": [
+                    {"id": "observe", "name": "Beobachtung erfassen", "type": "custom",
+                     "config": {"handler": "observe"}},
+                    {"id": "rl_update", "name": "RL Update", "type": "rl_action",
+                     "config": {"action_space": "learning"}, "depends_on": ["observe"]},
+                    {"id": "knowledge_update", "name": "Wissen aktualisieren", "type": "knowledge",
+                     "config": {"operation": "add_entity"}, "depends_on": ["rl_update"]}
+                ]
+            }
+        }
+
+    def execute_predefined(self, workflow_name: str, context: Dict[str, Any] = None) -> Dict:
+        """Führt einen vordefinierten Workflow aus"""
+        if workflow_name not in self.predefined_workflows:
+            return {"error": f"Workflow '{workflow_name}' not found"}
+
+        template = self.predefined_workflows[workflow_name]
+
+        # Workflow erstellen
+        workflow = self.create_workflow(
+            name=template["name"],
+            description=template.get("description", ""),
+            steps=template["steps"]
+        )
+
+        # Kontext setzen
+        if context:
+            workflow.context.update(context)
+
+        # Ausführen
+        self.execute_workflow(workflow.id, context)
+
+        return {
+            "workflow_id": workflow.id,
+            "name": workflow.name,
+            "status": "started",
+            "steps": len(workflow.steps)
+        }
 
     def initialize(self) -> bool:
         """Initialisiert die Workflow Engine"""
@@ -611,12 +741,82 @@ class WorkflowEngine:
     # ═══════════════════════════════════════════════════════════════
 
     def _on_job_completed(self, event):
-        """Handler für Job-Completion"""
-        pass  # Kann für async Job-Handling verwendet werden
+        """Handler für Job-Completion - Async Job-Handling"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        job_id = event.data.get('job_id')
+        result = event.data.get('result', {})
+
+        if not job_id:
+            return
+
+        logger.debug(f"Job completed: {job_id}")
+
+        # Finde den Workflow der diesen Job enthält
+        with self._lock:
+            for workflow_id, workflow in list(self._active_workflows.items()):
+                for step in workflow.steps:
+                    if step.job_id == job_id:
+                        step.status = StepStatus.COMPLETED
+                        step.result = result
+                        step.end_time = time.time()
+                        logger.info(f"Workflow {workflow_id} Step '{step.name}' completed")
+
+                        # Prüfe ob nächster Step gestartet werden kann
+                        self._try_start_next_steps(workflow)
+                        break
 
     def _on_job_failed(self, event):
-        """Handler für Job-Failure"""
-        pass
+        """Handler für Job-Failure - Fehlerbehandlung"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        job_id = event.data.get('job_id')
+        error = event.data.get('error', 'Unknown error')
+
+        if not job_id:
+            return
+
+        logger.error(f"Job failed: {job_id} - {error}")
+
+        # Finde den Workflow der diesen Job enthält
+        with self._lock:
+            for workflow_id, workflow in list(self._active_workflows.items()):
+                for step in workflow.steps:
+                    if step.job_id == job_id:
+                        step.status = StepStatus.FAILED
+                        step.error = error
+                        step.end_time = time.time()
+                        logger.error(f"Workflow {workflow_id} Step '{step.name}' failed: {error}")
+
+                        # Workflow als fehlgeschlagen markieren wenn kritischer Step
+                        if step.critical:
+                            workflow.status = WorkflowStatus.FAILED
+                            workflow.error = f"Critical step '{step.name}' failed: {error}"
+                            logger.error(f"Workflow {workflow_id} failed due to critical step failure")
+                        break
+
+    def _try_start_next_steps(self, workflow: 'Workflow'):
+        """Versucht die nächsten Steps eines Workflows zu starten"""
+        if workflow.status != WorkflowStatus.RUNNING:
+            return
+
+        for step in workflow.steps:
+            if step.status != StepStatus.PENDING:
+                continue
+
+            # Prüfe ob alle Abhängigkeiten erfüllt sind
+            deps_met = True
+            for dep_name in step.depends_on:
+                dep_step = next((s for s in workflow.steps if s.name == dep_name), None)
+                if dep_step and dep_step.status != StepStatus.COMPLETED:
+                    deps_met = False
+                    break
+
+            if deps_met:
+                # Starte den Step
+                self._execute_step(workflow, step)
 
     # ═══════════════════════════════════════════════════════════════
     # PREDEFINED WORKFLOWS
