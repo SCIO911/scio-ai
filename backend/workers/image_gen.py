@@ -286,7 +286,8 @@ class ImageGenerationWorker(BaseWorker):
         if seed is not None:
             generator = torch.Generator(device=self._device).manual_seed(seed)
         else:
-            seed = torch.randint(0, 2**32, (1,)).item()
+            # Use 2**31-1 to avoid potential overflow issues on some systems
+            seed = int(torch.randint(0, 2**31 - 1, (1,)).item())
             generator = torch.Generator(device=self._device).manual_seed(seed)
 
         self.notify_progress(job_id, 0.2, "Generating images")

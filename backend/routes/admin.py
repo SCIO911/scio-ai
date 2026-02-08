@@ -69,12 +69,12 @@ def overview():
             Earning.created_at >= thirty_days_ago
         ).all()
 
-        total_earnings = sum(e.amount_cents for e in earnings if e.earning_type.value == 'income')
-        total_expenses = sum(e.amount_cents for e in earnings if e.earning_type.value == 'expense')
+        total_earnings = sum(e.amount_cents for e in earnings if e.earning_type and e.earning_type.value == 'income')
+        total_expenses = sum(e.amount_cents for e in earnings if e.earning_type and e.earning_type.value == 'expense')
 
         by_source = {}
         for e in earnings:
-            if e.earning_type.value == 'income':
+            if e.earning_type and e.earning_type.value == 'income' and e.source:
                 source = e.source.value
                 by_source[source] = by_source.get(source, 0) + e.amount_cents
 
@@ -148,8 +148,8 @@ def list_all_jobs():
     if status_filter:
         try:
             status = JobStatus(status_filter)
-        except:
-            pass
+        except (ValueError, KeyError):
+            pass  # Invalid status filter, use None (no filter)
 
     jobs = queue.get_jobs(status=status, limit=limit)
 

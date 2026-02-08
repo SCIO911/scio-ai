@@ -51,7 +51,8 @@ except ImportError:
 
 FLORENCE_AVAILABLE = False
 try:
-    from transformers import AutoProcessor, AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM
+    # AutoProcessor already imported with LLaVA
     FLORENCE_AVAILABLE = True
 except ImportError:
     pass

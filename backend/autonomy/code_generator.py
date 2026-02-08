@@ -262,9 +262,10 @@ class CodeGenerator:
     """
 
     def __init__(self):
+        from backend.config import Config
         self.self_awareness = None
         self.memory = None
-        self.base_path = Path("C:/SCIO")
+        self.base_path = Path(getattr(Config, 'BASE_DIR', 'C:/SCIO'))
         self._generated_files: List[GeneratedCode] = []
 
     def initialize(self, self_awareness, memory) -> bool:

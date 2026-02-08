@@ -113,8 +113,8 @@ class VastAIIntegration:
         for callback in self._callbacks:
             try:
                 callback(event, data or {})
-            except:
-                pass
+            except Exception:
+                pass  # Callback errors should not affect operation
 
     def get_my_machines(self) -> List[VastMachine]:
         """Gibt eigene Maschinen zurück"""

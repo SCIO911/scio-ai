@@ -90,12 +90,15 @@ def chat_completions():
     """
     try:
         data = request.json
+        if not data:
+            return jsonify({'error': 'Invalid JSON body'}), 400
+
         model = data.get('model', 'mistral-7b')
         messages = data.get('messages', [])
-        max_tokens = data.get('max_tokens', Config.MAX_NEW_TOKENS)
-        temperature = data.get('temperature', 0.7)
-        top_p = data.get('top_p', 0.9)
-        stream = data.get('stream', False)
+        max_tokens = int(data.get('max_tokens', Config.MAX_NEW_TOKENS))
+        temperature = float(data.get('temperature', 0.7))
+        top_p = float(data.get('top_p', 0.9))
+        stream = bool(data.get('stream', False))
 
         if not messages:
             return jsonify({'error': 'messages required'}), 400
@@ -255,10 +258,13 @@ def generate_images():
     """
     try:
         data = request.json
+        if not data:
+            return jsonify({'error': 'Invalid JSON body'}), 400
+
         model = data.get('model', 'sdxl')
         prompt = data.get('prompt', '')
-        n = min(data.get('n', 1), 4)
-        size = data.get('size', '1024x1024')
+        n = min(int(data.get('n', 1)), 4)
+        size = str(data.get('size', '1024x1024'))
         negative_prompt = data.get('negative_prompt', '')
 
         if not prompt:
@@ -267,7 +273,7 @@ def generate_images():
         # Parse size
         try:
             width, height = map(int, size.split('x'))
-        except:
+        except (ValueError, AttributeError):
             width, height = 1024, 1024
 
         worker = get_image_worker()

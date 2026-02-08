@@ -319,7 +319,8 @@ class EvolutionPlanner:
                 raise Exception(f"Tests failed: {failed_tests}")
 
             # Step 3: Create Backup
-            full_path = Path("C:/SCIO") / generated.file_path
+            from backend.config import Config
+            full_path = Path(getattr(Config, 'BASE_DIR', 'C:/SCIO')) / generated.file_path
             if full_path.exists():
                 backup_path = self.self_tester.create_backup(generated.file_path)
                 if backup_path:

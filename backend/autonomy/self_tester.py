@@ -69,7 +69,8 @@ class SelfTester:
     """
 
     def __init__(self):
-        self.base_path = Path("C:/SCIO")
+        from backend.config import Config
+        self.base_path = Path(getattr(Config, 'BASE_DIR', 'C:/SCIO'))
         self._test_results: List[TestSuiteResult] = []
 
     def initialize(self) -> bool:

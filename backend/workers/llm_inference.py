@@ -8,6 +8,7 @@ Optimiert für RTX 5090 mit 24GB VRAM
 import os
 import time
 import json
+import threading
 from typing import Optional, Generator, List, Dict, Any
 
 from .base_worker import BaseWorker, WorkerStatus, model_manager
@@ -353,8 +354,6 @@ class LLMInferenceWorker(BaseWorker):
         )
 
         # Generation in separate thread
-        import threading
-
         generation_kwargs = {
             **inputs,
             'max_new_tokens': max_tokens,
@@ -372,14 +371,15 @@ class LLMInferenceWorker(BaseWorker):
 
         # Yield generated text
         output_text = ""
-        output_tokens = 0
 
         for text in streamer:
             output_text += text
-            output_tokens += 1
             yield text
 
         thread.join()
+
+        # Count actual output tokens
+        output_tokens = self._count_tokens(output_text)
 
         # Return final stats
         return {

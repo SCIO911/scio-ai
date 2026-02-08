@@ -41,6 +41,7 @@ from backend.config import Config
 from backend.models import init_db
 from backend.routes import api_bp, admin_bp, webhooks_bp, tools_bp
 from backend.routes.autonomy import autonomy_bp
+from backend.routes.ai_modules import ai_bp
 
 # Load .env
 load_dotenv(Config.BASE_DIR / '.env')
@@ -67,6 +68,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(webhooks_bp)
 app.register_blueprint(tools_bp)  # Alle AI-Tools
 app.register_blueprint(autonomy_bp, url_prefix='/api/autonomy')  # Selbst-Programmierung
+app.register_blueprint(ai_bp)  # AI Modules (Decision, Learning, Planning, Knowledge, Agents, Monitoring)
 
 
 # ===================================================================
@@ -529,6 +531,74 @@ def start_services():
     except Exception as e:
         print(f"[WARN]  Autonomy Engine Fehler: {e}")
 
+    # ═══════════════════════════════════════════════════════════════
+    # ADVANCED AI MODULES - Intelligente Entscheidungsfindung
+    # ═══════════════════════════════════════════════════════════════
+
+    # Decision Engine - Entscheidungsbäume und Heuristiken
+    try:
+        from backend.decision import get_decision_engine, get_rule_engine
+        decision_engine = get_decision_engine()
+        if decision_engine.initialize():
+            print("[OK] Decision Engine initialisiert")
+        rule_engine = get_rule_engine()
+        if rule_engine.initialize():
+            print("[OK] Rule Engine initialisiert")
+    except Exception as e:
+        print(f"[WARN]  Decision Module Fehler: {e}")
+
+    # Learning Module - RL und Continuous Learning
+    try:
+        from backend.learning import get_rl_agent, get_continuous_learner
+        rl_agent = get_rl_agent()
+        if rl_agent.initialize():
+            print("[OK] RL Agent initialisiert")
+        learner = get_continuous_learner()
+        if learner.initialize():
+            print("[OK] Continuous Learner initialisiert")
+    except Exception as e:
+        print(f"[WARN]  Learning Module Fehler: {e}")
+
+    # Planning Module - A*, MCTS, Hierarchical Planning
+    try:
+        from backend.planning import get_planner
+        planner = get_planner()
+        if planner.initialize():
+            print("[OK] Planner initialisiert (A*, MCTS)")
+    except Exception as e:
+        print(f"[WARN]  Planning Module Fehler: {e}")
+
+    # Knowledge Graph - Entitäten, Relationen, Inferenz
+    try:
+        from backend.knowledge import get_knowledge_graph
+        kg = get_knowledge_graph()
+        if kg.initialize():
+            print("[OK] Knowledge Graph initialisiert")
+    except Exception as e:
+        print(f"[WARN]  Knowledge Graph Fehler: {e}")
+
+    # Multi-Agent System - Kollaboration
+    try:
+        from backend.agents import get_multi_agent_system
+        mas = get_multi_agent_system()
+        if mas.initialize():
+            mas.start()
+            print("[OK] Multi-Agent System initialisiert")
+    except Exception as e:
+        print(f"[WARN]  Multi-Agent System Fehler: {e}")
+
+    # Monitoring - Drift Detection, Performance Tracking
+    try:
+        from backend.monitoring import get_drift_detector, get_performance_tracker
+        drift = get_drift_detector()
+        if drift.initialize():
+            print("[OK] Drift Detector initialisiert")
+        perf = get_performance_tracker()
+        if perf.initialize():
+            print("[OK] Performance Tracker initialisiert")
+    except Exception as e:
+        print(f"[WARN]  Monitoring Module Fehler: {e}")
+
     print("[OK] Alle Services gestartet - VOLLAUTOMATISCHER BETRIEB AKTIV")
 
 
@@ -559,12 +629,24 @@ def print_banner():
     print("   [OK] Memory - Langzeit-Gedaechtnis")
     print("   [OK] Task-Verifier - 100% Erfuellung garantiert")
     print("=" * 70)
+    print("\n[AI] ADVANCED AI MODULES:")
+    print("   [OK] Decision Engine - Entscheidungsbaeume & Heuristiken")
+    print("   [OK] Rule Engine - Regelbasierte Logik")
+    print("   [OK] RL Agent - Q-Learning & Reinforcement")
+    print("   [OK] Continuous Learner - Feedback & Patterns")
+    print("   [OK] Planner - A*, MCTS, Hierarchical Planning")
+    print("   [OK] Knowledge Graph - Entitaeten & Inferenz")
+    print("   [OK] Multi-Agent System - Kollaboration")
+    print("   [OK] Drift Detector - Anomalie-Erkennung")
+    print("   [OK] Performance Tracker - SLA Monitoring")
+    print("=" * 70)
     print("\n[JOB] ENDPOINTS:")
     print("   [NET] http://localhost:5000              Kunden-Portal")
     print("   [SETUP] http://localhost:5000/admin        Admin Dashboard")
     print("   [DOCS] http://localhost:5000/docs         API Dokumentation")
     print("   [HEALTH] http://localhost:5000/health       Health Check")
     print("   [BRAIN] http://localhost:5000/api/autonomy  Autonomie-API")
+    print("   [AI] http://localhost:5000/api/ai         AI Modules API")
     print("=" * 70)
     print(f"\n[NET] Server: http://localhost:{Config.PORT}")
     print("[AUTO] System laeuft vollautomatisch - keine manuellen Eingriffe noetig!")

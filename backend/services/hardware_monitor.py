@@ -196,7 +196,7 @@ class HardwareMonitor:
             # Remove units like "MiB", "W", "%", "C"
             clean = text.replace('MiB', '').replace('W', '').replace('%', '').replace('C', '').strip()
             return float(clean)
-        except:
+        except (ValueError, TypeError, AttributeError):
             return default
 
     def get_gpu_info(self) -> List[GPUInfo]:
@@ -327,7 +327,7 @@ class HardwareMonitor:
             cpu_freq = psutil.cpu_freq()
             freq_current = cpu_freq.current if cpu_freq else 0
             freq_max = cpu_freq.max if cpu_freq else 0
-        except:
+        except (AttributeError, RuntimeError, OSError):
             freq_current = 0
             freq_max = 0
 

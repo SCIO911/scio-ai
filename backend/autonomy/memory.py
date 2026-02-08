@@ -71,7 +71,8 @@ class Memory:
     """
 
     def __init__(self):
-        self.base_path = Path("C:/SCIO/data")
+        from backend.config import Config
+        self.base_path = Path(getattr(Config, 'DATA_DIR', 'C:/SCIO/data'))
         self.db_path = self.base_path / "memory.db"
         self._conn: Optional[sqlite3.Connection] = None
         self._lock = threading.Lock()

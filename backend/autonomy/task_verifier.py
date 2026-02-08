@@ -11,15 +11,15 @@ Features:
 - Automatische Korrektur bei Unvollständigkeit
 """
 
-import os
-import re
+import ast
 import json
-import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
+from backend.config import Config
 
 
 class VerificationStatus(str, Enum):
@@ -81,7 +81,7 @@ class TaskVerifier:
     """
 
     def __init__(self):
-        self.base_path = Path("C:/SCIO")
+        self.base_path = Path(getattr(Config, 'BASE_DIR', 'C:/SCIO'))
         self._verification_history: List[VerificationResult] = []
         self._correction_callbacks: List[Callable] = []
 
@@ -342,7 +342,6 @@ class TaskVerifier:
 
     def _check_class_exists(self, file_path: str, class_name: str) -> bool:
         """Prüft ob Klasse existiert"""
-        import ast
         full_path = self.base_path / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not full_path.exists():
             return False
@@ -353,12 +352,11 @@ class TaskVerifier:
                 if isinstance(node, ast.ClassDef) and node.name == class_name:
                     return True
             return False
-        except:
+        except (SyntaxError, OSError, UnicodeDecodeError):
             return False
 
     def _check_method_exists(self, file_path: str, class_name: str, method_name: str) -> bool:
         """Prüft ob Methode in Klasse existiert"""
-        import ast
         full_path = self.base_path / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not full_path.exists():
             return False
@@ -371,12 +369,11 @@ class TaskVerifier:
                         if isinstance(item, ast.FunctionDef) and item.name == method_name:
                             return True
             return False
-        except:
+        except (SyntaxError, OSError, UnicodeDecodeError):
             return False
 
     def _check_function_exists(self, file_path: str, func_name: str) -> bool:
         """Prüft ob Funktion existiert"""
-        import ast
         full_path = self.base_path / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not full_path.exists():
             return False
@@ -387,7 +384,7 @@ class TaskVerifier:
                 if isinstance(node, ast.FunctionDef) and node.name == func_name:
                     return True
             return False
-        except:
+        except (SyntaxError, OSError, UnicodeDecodeError):
             return False
 
     def _check_import_exists(self, file_path: str, module: str) -> bool:
@@ -398,7 +395,7 @@ class TaskVerifier:
         try:
             content = full_path.read_text(encoding='utf-8')
             return module in content
-        except:
+        except (OSError, UnicodeDecodeError):
             return False
 
     def _check_content_contains(self, file_path: str, text: str) -> bool:
@@ -409,7 +406,7 @@ class TaskVerifier:
         try:
             content = full_path.read_text(encoding='utf-8')
             return text in content
-        except:
+        except (OSError, UnicodeDecodeError):
             return False
 
     def _check_no_errors(self, files: List[str]) -> bool:
@@ -428,7 +425,7 @@ class TaskVerifier:
             content = full_path.read_text(encoding='utf-8')
             # Check for import and registration
             return component in content
-        except:
+        except (OSError, UnicodeDecodeError):
             return False
 
     def _suggest_correction(

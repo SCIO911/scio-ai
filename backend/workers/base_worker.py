@@ -90,8 +90,8 @@ class BaseWorker(ABC):
         for callback in self._callbacks:
             try:
                 callback(job_id, progress, message)
-            except:
-                pass
+            except Exception:
+                pass  # Callback errors should not affect job processing
 
     def get_status(self) -> dict:
         """Gibt Worker-Status zurück"""
@@ -224,8 +224,8 @@ class ModelManager:
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        except:
-            pass
+        except (ImportError, RuntimeError):
+            pass  # torch not available or CUDA error
 
     def unload_all(self):
         """Entlädt alle Modelle"""
@@ -241,10 +241,10 @@ class ModelManager:
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            except:
-                pass
+            except (ImportError, RuntimeError):
+                pass  # torch not available or CUDA error
 
-            print("🗑️  Alle Modelle entladen")
+            print("[OK] Alle Modelle entladen")
 
     def is_loaded(self, model_id: str) -> bool:
         """Prüft ob Modell geladen ist"""

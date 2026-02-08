@@ -105,8 +105,8 @@ class RunPodIntegration:
         for callback in self._callbacks:
             try:
                 callback(event, data or {})
-            except:
-                pass
+            except Exception:
+                pass  # Callback errors should not affect operation
 
     def get_myself(self) -> dict:
         """Gibt Account-Info zurück"""
