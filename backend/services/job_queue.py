@@ -116,7 +116,7 @@ class JobQueue:
                          Signatur: (job_id: str, input_data: dict) -> dict
         """
         self._workers[job_type.value] = worker_func
-        print(f"[OK] Worker registriert: {job_type.value}")
+        logger.info(f"Worker registriert: {job_type.value}")
 
     def add_callback(self, callback: Callable):
         """Registriert Callback für Job-Events"""
@@ -400,28 +400,24 @@ class JobQueue:
         """Behandelt einen Job-Timeout"""
         logger.warning(f"Job timeout: {job_id}")
 
-        db = SessionLocal()
         try:
-            job = db.query(Job).filter(Job.job_id == job_id).first()
-            if job and job.status == JobStatus.RUNNING:
-                job.status = JobStatus.FAILED
-                job.error_message = f"Job timed out after {self.job_timeout} seconds"
-                job.completed_at = datetime.utcnow()
-                db.commit()
+            with get_db_session() as db:
+                job = db.query(Job).filter(Job.job_id == job_id).first()
+                if job and job.status == JobStatus.RUNNING:
+                    job.status = JobStatus.FAILED
+                    job.error_message = f"Job timed out after {self.job_timeout} seconds"
+                    job.completed_at = datetime.utcnow()
 
-                print(f"[TIMEOUT] Job abgebrochen: {job_id}")
-                self._notify('job_timeout', job_id, {'timeout_seconds': self.job_timeout})
+            logger.warning(f"Job abgebrochen wegen Timeout: {job_id}")
+            self._notify('job_timeout', job_id, {'timeout_seconds': self.job_timeout})
 
+        except Exception as e:
+            logger.error(f"Timeout handling Fehler für {job_id}: {e}")
+        finally:
             # Remove from active jobs
             with self._lock:
                 if job_id in self._active_jobs:
                     del self._active_jobs[job_id]
-
-        except Exception as e:
-            logger.error(f"Timeout handling Fehler für {job_id}: {e}")
-            db.rollback()
-        finally:
-            db.close()
 
     def start(self):
         """Startet die Job-Queue"""
@@ -439,7 +435,6 @@ class JobQueue:
         self._timeout_thread.start()
 
         logger.info(f"Job Queue gestartet (max {self.max_concurrent} concurrent, timeout {self.job_timeout}s)")
-        print(f"[OK] Job Queue gestartet (max {self.max_concurrent} concurrent, timeout {self.job_timeout}s)")
 
     def stop(self):
         """Stoppt die Job-Queue"""
@@ -457,7 +452,6 @@ class JobQueue:
         self._executor.shutdown(wait=False)
 
         logger.info("Job Queue gestoppt")
-        print("[STOP] Job Queue gestoppt")
 
     @property
     def queue_size(self) -> int:
@@ -472,8 +466,7 @@ class JobQueue:
 
     def get_stats(self) -> dict:
         """Gibt Queue-Statistiken zurück"""
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             total = db.query(Job).count()
             pending = db.query(Job).filter(Job.status == JobStatus.PENDING).count()
             queued = db.query(Job).filter(Job.status == JobStatus.QUEUED).count()
@@ -500,8 +493,6 @@ class JobQueue:
                 },
                 'active_job_details': self.get_active_job_details(),
             }
-        finally:
-            db.close()
 
     def get_active_job_details(self) -> List[dict]:
         """Gibt Details zu allen aktiven Jobs zurück"""

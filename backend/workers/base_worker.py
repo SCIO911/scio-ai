@@ -5,6 +5,7 @@ Basisklasse für alle Worker
 """
 
 import time
+import logging
 import threading
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Callable
@@ -12,6 +13,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 from backend.config import Config
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class WorkerStatus(str, Enum):
@@ -197,7 +201,7 @@ class ModelManager:
                 self._evict_oldest()
 
             # Load new model
-            print(f"[RETRY] Lade Modell: {model_id}")
+            logger.info(f"Lade Modell: {model_id}")
             model = loader_func()
             self._loaded_models[model_id] = model
             self._model_usage[model_id] = time.time()
@@ -210,7 +214,7 @@ class ModelManager:
             return
 
         oldest_id = min(self._model_usage, key=self._model_usage.get)
-        print(f"🗑️  Entlade Modell: {oldest_id}")
+        logger.info(f"Entlade Modell: {oldest_id}")
 
         # Free memory
         model = self._loaded_models.pop(oldest_id, None)
@@ -244,7 +248,7 @@ class ModelManager:
             except (ImportError, RuntimeError):
                 pass  # torch not available or CUDA error
 
-            print("[OK] Alle Modelle entladen")
+            logger.info("Alle Modelle entladen")
 
     def is_loaded(self, model_id: str) -> bool:
         """Prüft ob Modell geladen ist"""

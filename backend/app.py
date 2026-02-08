@@ -329,186 +329,161 @@ def handle_subscribe_jobs():
 
 
 # ===================================================================
-# STARTUP
+# STARTUP - Modular Service Initialization
 # ===================================================================
 
-def start_services():
-    """Startet alle Background-Services - VOLLAUTOMATISCH"""
-    print("[SETUP] Starte Services (Vollautomatischer Modus)...")
+import logging
 
-    # Initialize Database
+# Configure module logger
+startup_logger = logging.getLogger('scio.startup')
+
+
+def _init_database():
+    """Initialisiert die Datenbank"""
     try:
         init_db()
-        print("[OK] Datenbank initialisiert")
+        startup_logger.info("Datenbank initialisiert")
+        return True
     except Exception as e:
-        print(f"[WARN]  Datenbank-Fehler: {e}")
+        startup_logger.warning(f"Datenbank-Fehler: {e}")
+        return False
 
-    # Start Hardware Monitor
+
+def _init_hardware_monitor():
+    """Startet den Hardware Monitor"""
     try:
         from backend.services.hardware_monitor import get_hardware_monitor
         monitor = get_hardware_monitor()
         monitor.start()
+        return True
     except Exception as e:
-        print(f"[WARN]  Hardware Monitor Fehler: {e}")
+        startup_logger.warning(f"Hardware Monitor Fehler: {e}")
+        return False
 
-    # Start Job Queue
+
+def _register_worker(queue, worker_getter, job_types, worker_name):
+    """Hilfsfunktion zum Registrieren eines Workers"""
+    try:
+        worker = worker_getter()
+        if worker.initialize():
+            for job_type in job_types:
+                queue.register_worker(job_type, worker)
+            return True
+    except Exception as e:
+        startup_logger.warning(f"{worker_name} nicht verfügbar: {e}")
+    return False
+
+
+def _init_job_queue():
+    """Initialisiert die Job Queue und registriert alle Worker"""
     try:
         from backend.services.job_queue import get_job_queue
         from backend.models.job import JobType
 
         queue = get_job_queue()
 
-        # Register Workers
-        try:
-            from backend.workers.llm_inference import get_inference_worker
-            worker = get_inference_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.LLM_INFERENCE, worker)
-        except Exception as e:
-            print(f"[WARN]  LLM Inference Worker nicht verfügbar: {e}")
+        # Worker-Definitionen: (getter_func, job_types, name)
+        worker_configs = [
+            # Core Workers
+            ('backend.workers.llm_inference', 'get_inference_worker',
+             [JobType.LLM_INFERENCE], 'LLM Inference Worker'),
+            ('backend.workers.llm_training', 'get_training_worker',
+             [JobType.LLM_TRAINING], 'LLM Training Worker'),
+            ('backend.workers.image_gen', 'get_image_worker',
+             [JobType.IMAGE_GENERATION], 'Image Generation Worker'),
 
-        try:
-            from backend.workers.llm_training import get_training_worker
-            worker = get_training_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.LLM_TRAINING, worker)
-        except Exception as e:
-            print(f"[WARN]  LLM Training Worker nicht verfügbar: {e}")
+            # Audio Worker
+            ('backend.workers.audio_worker', 'get_audio_worker',
+             [JobType.SPEECH_TO_TEXT, JobType.TEXT_TO_SPEECH, JobType.MUSIC_GENERATION],
+             'Audio Worker'),
 
-        try:
-            from backend.workers.image_gen import get_image_worker
-            worker = get_image_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.IMAGE_GENERATION, worker)
-        except Exception as e:
-            print(f"[WARN]  Image Generation Worker nicht verfügbar: {e}")
+            # Video Worker
+            ('backend.workers.video_worker', 'get_video_worker',
+             [JobType.VIDEO_GENERATION, JobType.IMAGE_TO_VIDEO], 'Video Worker'),
 
-        # ═══════════════════════════════════════════════════════════════
-        # NEUE WORKER - Alle AI-Tools für SCIO
-        # ═══════════════════════════════════════════════════════════════
+            # Vision Worker
+            ('backend.workers.vision_worker', 'get_vision_worker',
+             [JobType.IMAGE_CAPTION, JobType.VISUAL_QA, JobType.OCR, JobType.OBJECT_DETECTION],
+             'Vision Worker'),
 
-        # Audio Worker (STT, TTS, Music)
-        try:
-            from backend.workers.audio_worker import get_audio_worker
-            worker = get_audio_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.SPEECH_TO_TEXT, worker)
-                queue.register_worker(JobType.TEXT_TO_SPEECH, worker)
-                queue.register_worker(JobType.MUSIC_GENERATION, worker)
-        except Exception as e:
-            print(f"[WARN]  Audio Worker nicht verfügbar: {e}")
+            # Code Worker
+            ('backend.workers.code_worker', 'get_code_worker',
+             [JobType.CODE_GENERATION, JobType.CODE_COMPLETION, JobType.CODE_REVIEW, JobType.CODE_FIX],
+             'Code Worker'),
 
-        # Video Worker
-        try:
-            from backend.workers.video_worker import get_video_worker
-            worker = get_video_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.VIDEO_GENERATION, worker)
-                queue.register_worker(JobType.IMAGE_TO_VIDEO, worker)
-        except Exception as e:
-            print(f"[WARN]  Video Worker nicht verfügbar: {e}")
+            # Embedding Worker
+            ('backend.workers.embedding_worker', 'get_embedding_worker',
+             [JobType.TEXT_EMBEDDING, JobType.IMAGE_EMBEDDING, JobType.SIMILARITY_SEARCH],
+             'Embedding Worker'),
 
-        # Vision Worker (OCR, Captioning, Detection)
-        try:
-            from backend.workers.vision_worker import get_vision_worker
-            worker = get_vision_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.IMAGE_CAPTION, worker)
-                queue.register_worker(JobType.VISUAL_QA, worker)
-                queue.register_worker(JobType.OCR, worker)
-                queue.register_worker(JobType.OBJECT_DETECTION, worker)
-        except Exception as e:
-            print(f"[WARN]  Vision Worker nicht verfügbar: {e}")
+            # Upscale Worker
+            ('backend.workers.upscale_worker', 'get_upscale_worker',
+             [JobType.IMAGE_UPSCALE, JobType.FACE_RESTORE], 'Upscale Worker'),
 
-        # Code Worker
-        try:
-            from backend.workers.code_worker import get_code_worker
-            worker = get_code_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.CODE_GENERATION, worker)
-                queue.register_worker(JobType.CODE_COMPLETION, worker)
-                queue.register_worker(JobType.CODE_REVIEW, worker)
-                queue.register_worker(JobType.CODE_FIX, worker)
-        except Exception as e:
-            print(f"[WARN]  Code Worker nicht verfügbar: {e}")
+            # 3D Worker
+            ('backend.workers.threed_worker', 'get_threed_worker',
+             [JobType.TEXT_TO_3D, JobType.IMAGE_TO_3D], '3D Worker'),
 
-        # Embedding Worker (RAG)
-        try:
-            from backend.workers.embedding_worker import get_embedding_worker
-            worker = get_embedding_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.TEXT_EMBEDDING, worker)
-                queue.register_worker(JobType.IMAGE_EMBEDDING, worker)
-                queue.register_worker(JobType.SIMILARITY_SEARCH, worker)
-        except Exception as e:
-            print(f"[WARN]  Embedding Worker nicht verfügbar: {e}")
+            # Document Worker
+            ('backend.workers.document_worker', 'get_document_worker',
+             [JobType.DOCUMENT_PARSE, JobType.PDF_EXTRACT, JobType.TEXT_CHUNK],
+             'Document Worker'),
+        ]
 
-        # Upscale Worker
-        try:
-            from backend.workers.upscale_worker import get_upscale_worker
-            worker = get_upscale_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.IMAGE_UPSCALE, worker)
-                queue.register_worker(JobType.FACE_RESTORE, worker)
-        except Exception as e:
-            print(f"[WARN]  Upscale Worker nicht verfügbar: {e}")
-
-        # 3D Worker
-        try:
-            from backend.workers.threed_worker import get_threed_worker
-            worker = get_threed_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.TEXT_TO_3D, worker)
-                queue.register_worker(JobType.IMAGE_TO_3D, worker)
-        except Exception as e:
-            print(f"[WARN]  3D Worker nicht verfügbar: {e}")
-
-        # Document Worker
-        try:
-            from backend.workers.document_worker import get_document_worker
-            worker = get_document_worker()
-            if worker.initialize():
-                queue.register_worker(JobType.DOCUMENT_PARSE, worker)
-                queue.register_worker(JobType.PDF_EXTRACT, worker)
-                queue.register_worker(JobType.TEXT_CHUNK, worker)
-        except Exception as e:
-            print(f"[WARN]  Document Worker nicht verfügbar: {e}")
+        # Registriere alle Worker dynamisch
+        for module_path, getter_name, job_types, worker_name in worker_configs:
+            try:
+                module = __import__(module_path, fromlist=[getter_name])
+                getter_func = getattr(module, getter_name)
+                _register_worker(queue, getter_func, job_types, worker_name)
+            except Exception as e:
+                startup_logger.warning(f"{worker_name} nicht verfügbar: {e}")
 
         queue.start()
+        return True
     except Exception as e:
-        print(f"[WARN]  Job Queue Fehler: {e}")
+        startup_logger.warning(f"Job Queue Fehler: {e}")
+        return False
 
-    # Start Platform Integrations
+
+def _init_platform_integrations():
+    """Initialisiert Platform-Integrationen (Vast.ai, RunPod)"""
+    # Vast.ai
     try:
         from backend.integrations.vastai import get_vastai
         vastai = get_vastai()
         if vastai._enabled:
             vastai.start_monitor()
     except Exception as e:
-        print(f"[WARN]  Vast.ai Integration Fehler: {e}")
+        startup_logger.warning(f"Vast.ai Integration Fehler: {e}")
 
+    # RunPod
     try:
         from backend.integrations.runpod import get_runpod
         runpod = get_runpod()
         if runpod._enabled:
             runpod.start_monitor()
     except Exception as e:
-        print(f"[WARN]  RunPod Integration Fehler: {e}")
+        startup_logger.warning(f"RunPod Integration Fehler: {e}")
 
-    # Start Automation Services
+
+def _init_automation_services():
+    """Startet Automatisierungs-Services"""
+    # Scheduler
     try:
         from backend.automation.scheduler import get_scheduler
         scheduler = get_scheduler()
         scheduler.start()
     except Exception as e:
-        print(f"[WARN]  Scheduler Fehler: {e}")
+        startup_logger.warning(f"Scheduler Fehler: {e}")
 
+    # Auto Worker
     try:
         from backend.automation.auto_worker import get_auto_worker
         auto_worker = get_auto_worker()
         auto_worker.start()
     except Exception as e:
-        print(f"[WARN]  AutoWorker Fehler: {e}")
+        startup_logger.warning(f"AutoWorker Fehler: {e}")
 
     # Startup Notification
     try:
@@ -516,90 +491,123 @@ def start_services():
         notifier = get_notification_service()
         notifier.notify_startup()
     except Exception as e:
-        print(f"[WARN]  Startup-Benachrichtigung Fehler: {e}")
+        startup_logger.warning(f"Startup-Benachrichtigung Fehler: {e}")
 
-    # ═══════════════════════════════════════════════════════════════
-    # AUTONOMY ENGINE - Selbst-Programmierung
-    # ═══════════════════════════════════════════════════════════════
+
+def _init_autonomy_engine():
+    """Initialisiert die Autonomy Engine für Selbst-Programmierung"""
     try:
         from backend.autonomy import get_autonomy_engine
         autonomy = get_autonomy_engine()
         if autonomy.initialize():
-            print("[OK] Autonomy Engine initialisiert - Selbst-Programmierung aktiv")
+            startup_logger.info("Autonomy Engine initialisiert - Selbst-Programmierung aktiv")
+            return True
         else:
-            print("[WARN] Autonomy Engine konnte nicht initialisiert werden")
+            startup_logger.warning("Autonomy Engine konnte nicht initialisiert werden")
+            return False
     except Exception as e:
-        print(f"[WARN]  Autonomy Engine Fehler: {e}")
+        startup_logger.warning(f"Autonomy Engine Fehler: {e}")
+        return False
 
-    # ═══════════════════════════════════════════════════════════════
-    # ADVANCED AI MODULES - Intelligente Entscheidungsfindung
-    # ═══════════════════════════════════════════════════════════════
 
-    # Decision Engine - Entscheidungsbäume und Heuristiken
+def _init_ai_modules():
+    """Initialisiert erweiterte AI-Module"""
+    # Decision Engine
     try:
         from backend.decision import get_decision_engine, get_rule_engine
         decision_engine = get_decision_engine()
         if decision_engine.initialize():
-            print("[OK] Decision Engine initialisiert")
+            startup_logger.info("Decision Engine initialisiert")
         rule_engine = get_rule_engine()
         if rule_engine.initialize():
-            print("[OK] Rule Engine initialisiert")
+            startup_logger.info("Rule Engine initialisiert")
     except Exception as e:
-        print(f"[WARN]  Decision Module Fehler: {e}")
+        startup_logger.warning(f"Decision Module Fehler: {e}")
 
-    # Learning Module - RL und Continuous Learning
+    # Learning Module
     try:
         from backend.learning import get_rl_agent, get_continuous_learner
         rl_agent = get_rl_agent()
         if rl_agent.initialize():
-            print("[OK] RL Agent initialisiert")
+            startup_logger.info("RL Agent initialisiert")
         learner = get_continuous_learner()
         if learner.initialize():
-            print("[OK] Continuous Learner initialisiert")
+            startup_logger.info("Continuous Learner initialisiert")
     except Exception as e:
-        print(f"[WARN]  Learning Module Fehler: {e}")
+        startup_logger.warning(f"Learning Module Fehler: {e}")
 
-    # Planning Module - A*, MCTS, Hierarchical Planning
+    # Planning Module
     try:
         from backend.planning import get_planner
         planner = get_planner()
         if planner.initialize():
-            print("[OK] Planner initialisiert (A*, MCTS)")
+            startup_logger.info("Planner initialisiert (A*, MCTS)")
     except Exception as e:
-        print(f"[WARN]  Planning Module Fehler: {e}")
+        startup_logger.warning(f"Planning Module Fehler: {e}")
 
-    # Knowledge Graph - Entitäten, Relationen, Inferenz
+    # Knowledge Graph
     try:
         from backend.knowledge import get_knowledge_graph
         kg = get_knowledge_graph()
         if kg.initialize():
-            print("[OK] Knowledge Graph initialisiert")
+            startup_logger.info("Knowledge Graph initialisiert")
     except Exception as e:
-        print(f"[WARN]  Knowledge Graph Fehler: {e}")
+        startup_logger.warning(f"Knowledge Graph Fehler: {e}")
 
-    # Multi-Agent System - Kollaboration
+    # Multi-Agent System
     try:
         from backend.agents import get_multi_agent_system
         mas = get_multi_agent_system()
         if mas.initialize():
             mas.start()
-            print("[OK] Multi-Agent System initialisiert")
+            startup_logger.info("Multi-Agent System initialisiert")
     except Exception as e:
-        print(f"[WARN]  Multi-Agent System Fehler: {e}")
+        startup_logger.warning(f"Multi-Agent System Fehler: {e}")
 
-    # Monitoring - Drift Detection, Performance Tracking
+    # Monitoring
     try:
         from backend.monitoring import get_drift_detector, get_performance_tracker
         drift = get_drift_detector()
         if drift.initialize():
-            print("[OK] Drift Detector initialisiert")
+            startup_logger.info("Drift Detector initialisiert")
         perf = get_performance_tracker()
         if perf.initialize():
-            print("[OK] Performance Tracker initialisiert")
+            startup_logger.info("Performance Tracker initialisiert")
     except Exception as e:
-        print(f"[WARN]  Monitoring Module Fehler: {e}")
+        startup_logger.warning(f"Monitoring Module Fehler: {e}")
 
-    print("[OK] Alle Services gestartet - VOLLAUTOMATISCHER BETRIEB AKTIV")
+
+def start_services():
+    """
+    Startet alle Background-Services - VOLLAUTOMATISCH
+
+    Diese Funktion orchestriert den Start aller SCIO-Services
+    in der richtigen Reihenfolge mit Fehlerbehandlung.
+    """
+    startup_logger.info("Starte Services (Vollautomatischer Modus)...")
+
+    # 1. Datenbank initialisieren (kritisch)
+    _init_database()
+
+    # 2. Hardware Monitor starten
+    _init_hardware_monitor()
+
+    # 3. Job Queue mit allen Workern initialisieren
+    _init_job_queue()
+
+    # 4. Platform-Integrationen starten
+    _init_platform_integrations()
+
+    # 5. Automatisierungs-Services starten
+    _init_automation_services()
+
+    # 6. Autonomy Engine initialisieren
+    _init_autonomy_engine()
+
+    # 7. Erweiterte AI-Module initialisieren
+    _init_ai_modules()
+
+    startup_logger.info("Alle Services gestartet - VOLLAUTOMATISCHER BETRIEB AKTIV")
 
 
 def print_banner():
