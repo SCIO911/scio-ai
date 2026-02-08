@@ -1,0 +1,118 @@
+# SCIO LLM Workflow Example
+# Zeigt die Integration von LLMs in SCIO-Workflows
+
+name: llm_assisted_analysis
+version: "1.0"
+
+metadata:
+  author: SCIO Team
+  description: |
+    Beispiel für LLM-unterstützte Datenanalyse.
+    Der LLM-Agent interpretiert die statistischen Ergebnisse.
+  tags:
+    - llm
+    - ai
+    - analysis
+
+parameters:
+  - name: data_file
+    type: path
+    required: true
+    description: Pfad zur Datendatei
+
+  - name: llm_provider
+    type: string
+    default: openai
+    description: LLM-Provider (openai, anthropic, local)
+
+  - name: llm_model
+    type: string
+    default: gpt-4
+    description: LLM-Modell
+
+agents:
+  - id: loader
+    type: data_loader
+    config:
+      validate_schema: true
+
+  - id: analyzer
+    type: analyzer
+    config:
+      methods: ["mean", "std", "min", "max", "count"]
+
+  - id: llm
+    type: llm
+    name: LLM Interpreter
+    description: Interpretiert die Analyseergebnisse
+    config:
+      provider: "${llm_provider}"
+      model: "${llm_model}"
+      temperature: 0.3
+      max_tokens: 1024
+      system_prompt: |
+        Du bist ein wissenschaftlicher Datenanalyst.
+        Analysiere die gegebenen statistischen Daten und liefere
+        Erkenntnisse und Empfehlungen.
+
+  - id: reporter
+    type: reporter
+    config:
+      output_format: markdown
+      include_timestamp: true
+
+steps:
+  - id: load_data
+    type: agent
+    agent: loader
+    inputs:
+      path: "${data_file}"
+    outputs:
+      - data
+
+  - id: compute_stats
+    type: agent
+    agent: analyzer
+    depends_on:
+      - load_data
+    inputs:
+      data: "${step.load_data.data}"
+    outputs:
+      - statistics
+
+  - id: interpret
+    type: agent
+    agent: llm
+    depends_on:
+      - compute_stats
+    inputs:
+      prompt: |
+        Bitte analysiere diese statistischen Ergebnisse:
+
+        ${step.compute_stats.statistics}
+
+        Liefere:
+        1. Zusammenfassung der wichtigsten Erkenntnisse
+        2. Auffälligkeiten in den Daten
+        3. Empfehlungen für weitere Analysen
+    outputs:
+      - response
+
+  - id: generate_report
+    type: agent
+    agent: reporter
+    depends_on:
+      - compute_stats
+      - interpret
+    inputs:
+      title: "LLM-unterstützte Datenanalyse"
+      data:
+        statistics: "${step.compute_stats.statistics}"
+        interpretation: "${step.interpret.response}"
+    outputs:
+      - report
+
+outputs:
+  statistics: Berechnete Statistiken
+  interpretation: LLM-Interpretation
+  report: Vollständiger Bericht

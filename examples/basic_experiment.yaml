@@ -1,0 +1,121 @@
+# SCIO Basic Experiment Example
+# Demonstriert die grundlegende Struktur eines SCIO-Experiments
+
+name: basic_data_analysis
+version: "1.0"
+
+metadata:
+  author: SCIO Team
+  description: |
+    Ein einfaches Beispiel-Experiment das zeigt wie
+    SCIO-Experimente strukturiert werden.
+  tags:
+    - example
+    - beginner
+    - data-analysis
+  license: MIT
+
+# Parameter die beim Ausführen überschrieben werden können
+parameters:
+  - name: random_seed
+    type: int
+    default: 42
+    description: Seed für Reproduzierbarkeit
+    required: false
+
+  - name: data_path
+    type: path
+    default: ./data/sample.csv
+    description: Pfad zur Datendatei
+    required: true
+
+  - name: output_format
+    type: string
+    default: json
+    description: Ausgabeformat (json, csv, parquet)
+
+# Agenten-Definitionen
+agents:
+  - id: data_loader
+    type: file_reader
+    name: Datenlade-Agent
+    description: Lädt und validiert Eingabedaten
+    config:
+      validate_schema: true
+      encoding: utf-8
+
+  - id: analyzer
+    type: statistics
+    name: Analyse-Agent
+    description: Führt statistische Analysen durch
+    config:
+      methods:
+        - mean
+        - std
+        - median
+        - correlation
+
+  - id: reporter
+    type: report_generator
+    name: Report-Agent
+    description: Generiert den Abschlussbericht
+
+# Ausführungsschritte
+steps:
+  - id: load_data
+    type: agent
+    agent: data_loader
+    inputs:
+      path: "${data_path}"
+      seed: "${random_seed}"
+    outputs:
+      - raw_data
+      - schema_info
+    resources:
+      memory_mb: 512
+      timeout_seconds: 60
+
+  - id: validate_data
+    type: checkpoint
+    depends_on:
+      - load_data
+    inputs:
+      data: "${step.load_data.raw_data}"
+
+  - id: run_analysis
+    type: agent
+    agent: analyzer
+    depends_on:
+      - validate_data
+    inputs:
+      data: "${step.load_data.raw_data}"
+    outputs:
+      - statistics
+      - visualizations
+    resources:
+      memory_mb: 1024
+      timeout_seconds: 300
+
+  - id: generate_report
+    type: agent
+    agent: reporter
+    depends_on:
+      - run_analysis
+    inputs:
+      statistics: "${step.run_analysis.statistics}"
+      format: "${output_format}"
+    outputs:
+      - report
+
+# Globale Konfiguration
+config:
+  logging:
+    level: INFO
+  execution:
+    checkpoint_interval: 60
+
+# Dokumentierte Outputs
+outputs:
+  raw_data: Die geladenen Rohdaten
+  statistics: Berechnete Statistiken
+  report: Generierter Analysebericht

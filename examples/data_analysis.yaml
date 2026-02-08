@@ -1,0 +1,102 @@
+# SCIO Data Analysis Experiment
+# Zeigt die Verwendung von DataLoader, Analyzer und Reporter
+
+name: data_analysis_pipeline
+version: "1.0"
+
+metadata:
+  author: SCIO Team
+  description: |
+    Ein vollständiges Beispiel für eine Datenanalyse-Pipeline.
+    Lädt Daten, führt Analysen durch und generiert einen Report.
+  tags:
+    - analysis
+    - pipeline
+    - example
+
+parameters:
+  - name: input_file
+    type: path
+    required: true
+    description: Pfad zur Eingabedatei (CSV, JSON)
+
+  - name: output_dir
+    type: path
+    default: ./output
+    description: Ausgabeverzeichnis für Reports
+
+  - name: analysis_methods
+    type: list
+    default: ["mean", "std", "median", "min", "max"]
+    description: Statistische Methoden
+
+agents:
+  - id: loader
+    type: data_loader
+    name: Datenloader
+    description: Lädt die Eingabedaten
+    config:
+      validate_schema: true
+      encoding: utf-8
+
+  - id: stats
+    type: analyzer
+    name: Statistik-Agent
+    description: Berechnet Statistiken
+    config:
+      methods: "${analysis_methods}"
+      decimal_places: 4
+
+  - id: reporter
+    type: reporter
+    name: Report-Generator
+    description: Erstellt den Analysebericht
+    config:
+      output_format: markdown
+      include_metadata: true
+      output_dir: "${output_dir}"
+
+steps:
+  - id: load
+    type: agent
+    agent: loader
+    inputs:
+      path: "${input_file}"
+    outputs:
+      - data
+      - metadata
+    resources:
+      memory_mb: 512
+      timeout_seconds: 60
+
+  - id: analyze
+    type: agent
+    agent: stats
+    depends_on:
+      - load
+    inputs:
+      data: "${step.load.data}"
+    outputs:
+      - statistics
+    resources:
+      memory_mb: 1024
+      timeout_seconds: 120
+
+  - id: report
+    type: agent
+    agent: reporter
+    depends_on:
+      - analyze
+    inputs:
+      title: "Datenanalyse Report"
+      data:
+        input_metadata: "${step.load.metadata}"
+        statistics: "${step.analyze.statistics}"
+    outputs:
+      - report
+      - output_path
+
+outputs:
+  data: Geladene Rohdaten
+  statistics: Berechnete Statistiken
+  report: Generierter Analysebericht

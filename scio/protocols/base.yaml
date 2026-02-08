@@ -1,0 +1,62 @@
+# SCIO Base Protocol
+# Definiert die grundlegende Struktur für Experiment-Protokolle
+
+version: "1.0"
+name: base_protocol
+
+description: |
+  Basis-Protokoll für SCIO-Experimente.
+  Definiert erforderliche Felder und Validierungsregeln.
+
+required_fields:
+  - name
+  - version
+  - steps
+
+optional_fields:
+  - metadata
+  - agents
+  - parameters
+  - config
+  - outputs
+
+metadata_schema:
+  author:
+    type: string
+    required: false
+  description:
+    type: string
+    required: false
+  version:
+    type: string
+    pattern: '^\d+\.\d+(\.\d+)?$'
+  tags:
+    type: array
+    items:
+      type: string
+
+step_schema:
+  id:
+    type: string
+    required: true
+    pattern: '^[a-z][a-z0-9_-]*$'
+  type:
+    type: string
+    enum: [agent, tool, condition, parallel, checkpoint]
+    default: agent
+  agent:
+    type: string
+    required_if:
+      type: agent
+  depends_on:
+    type: array
+    items:
+      type: string
+
+validation_rules:
+  - name: unique_step_ids
+    description: Alle Step-IDs müssen eindeutig sein
+  - name: valid_dependencies
+    description: Abhängigkeiten müssen auf existierende Steps verweisen
+  - name: no_circular_deps
+    description: Keine zyklischen Abhängigkeiten erlaubt
