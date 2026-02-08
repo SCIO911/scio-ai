@@ -94,8 +94,8 @@ class BaseWorker(ABC):
         for callback in self._callbacks:
             try:
                 callback(job_id, progress, message)
-            except Exception:
-                pass  # Callback errors should not affect job processing
+            except Exception as e:
+                logger.debug(f"Progress callback Fehler für {job_id}: {e}")
 
     def get_status(self) -> dict:
         """Gibt Worker-Status zurück"""

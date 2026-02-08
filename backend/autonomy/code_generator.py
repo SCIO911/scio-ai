@@ -369,35 +369,112 @@ class CodeGenerator:
 
         return generated
 
+    def _generate_param_validation(self, params: List[str]) -> str:
+        """Generiert Parameter-Validierung für Service-Methoden"""
+        if not params:
+            return "pass  # Keine Parameter zu validieren"
+
+        validations = []
+        for param in params:
+            param_name = param.strip()
+            if param_name:
+                validations.append(f'if {param_name} is None:\n                    raise ValueError("{param_name} darf nicht None sein")')
+
+        return "\n                ".join(validations) if validations else "pass"
+
     def _generate_method(self, method_name: str, worker_name: str) -> str:
-        """Generiert eine Methode für einen Worker"""
+        """Generiert eine Methode für einen Worker mit echter Implementierung"""
         return f'''    def {method_name}(self, input_data: dict) -> dict:
         """
         {method_name.replace('_', ' ').title()}
 
         Args:
-            input_data: Eingabedaten
+            input_data: Eingabedaten mit 'input'/'text'/'prompt' Feld
 
         Returns:
             dict mit Ergebnis
         """
         start_time = time.time()
+        tokens_in = 0
+        tokens_out = 0
 
         # Load model if needed
         model_id = input_data.get("model")
         if model_id and (self._current_model_id != model_id or self._model is None):
             self._load_model(model_id)
 
-        # TODO: Implement {method_name}
-        # This is a placeholder - implement actual logic
+        if self._model is None or self._tokenizer is None:
+            return {{
+                "status": "error",
+                "error": "Model not loaded",
+                "gpu_seconds": 0,
+            }}
 
-        result = {{
-            "status": "success",
-            "message": "{method_name} completed",
-            "gpu_seconds": time.time() - start_time,
-        }}
+        # Extract input text from various possible fields
+        input_text = (
+            input_data.get("input") or
+            input_data.get("text") or
+            input_data.get("prompt") or
+            input_data.get("content", "")
+        )
 
-        return result
+        if not input_text:
+            return {{
+                "status": "error",
+                "error": "No input text provided",
+                "gpu_seconds": 0,
+            }}
+
+        try:
+            # Tokenize input
+            inputs = self._tokenizer(
+                input_text,
+                return_tensors="pt",
+                truncation=True,
+                max_length=4096,
+            )
+            tokens_in = inputs["input_ids"].shape[1]
+
+            # Move to device
+            if self._device == "cuda":
+                inputs = {{k: v.cuda() for k, v in inputs.items()}}
+
+            # Generate output
+            with torch.no_grad():
+                outputs = self._model.generate(
+                    **inputs,
+                    max_new_tokens=input_data.get("max_tokens", 512),
+                    temperature=input_data.get("temperature", 0.7),
+                    top_p=input_data.get("top_p", 0.9),
+                    do_sample=input_data.get("temperature", 0.7) > 0,
+                    pad_token_id=self._tokenizer.eos_token_id,
+                )
+
+            # Decode output
+            tokens_out = outputs.shape[1] - tokens_in
+            output_text = self._tokenizer.decode(
+                outputs[0][tokens_in:],
+                skip_special_tokens=True,
+            )
+
+            gpu_seconds = time.time() - start_time
+
+            return {{
+                "status": "success",
+                "output": output_text,
+                "tokens_input": tokens_in,
+                "tokens_output": tokens_out,
+                "gpu_seconds": gpu_seconds,
+                "model": self._current_model_id,
+            }}
+
+        except Exception as e:
+            return {{
+                "status": "error",
+                "error": str(e),
+                "tokens_input": tokens_in,
+                "gpu_seconds": time.time() - start_time,
+            }}
 '''
 
     def generate_route(
@@ -425,6 +502,7 @@ class CodeGenerator:
             method = ep.get("method", "POST")
             func_name = ep.get("function", "handler")
             ep_description = ep.get("description", "")
+            worker_name = ep.get("worker", route_name_lower)
 
             endpoints_code += f'''
 @{route_name_lower}_bp.route('{path}', methods=['{method}'])
@@ -436,13 +514,52 @@ def {func_name}():
     try:
         data = request.get_json() or {{}}
 
-        # TODO: Implement {func_name}
-        result = {{"status": "success", "message": "{func_name} not implemented yet"}}
+        # Validiere erforderliche Felder
+        if not data:
+            return jsonify({{"error": "Request body required"}}), 400
 
-        return jsonify(result)
+        # Hole Worker-Instanz
+        from backend.workers.{worker_name}_worker import get_{worker_name}_worker
+        worker = get_{worker_name}_worker()
 
+        # Prüfe Worker-Status
+        if worker.status.value == 'error':
+            return jsonify({{"error": "Worker not available", "details": worker._error_message}}), 503
+
+        # Job erstellen und ausführen
+        from backend.services.job_queue import get_job_queue
+        import uuid
+
+        job_id = str(uuid.uuid4())
+        queue = get_job_queue()
+
+        job = queue.submit(
+            job_id=job_id,
+            job_type="{func_name}",
+            input_data=data,
+            priority=data.get("priority", 5),
+        )
+
+        # Synchrone Ausführung wenn gewünscht
+        if data.get("sync", False):
+            result = worker(job_id, data)
+            return jsonify({{
+                "job_id": job_id,
+                "status": "completed",
+                "result": result,
+            }})
+
+        # Asynchrone Ausführung
+        return jsonify({{
+            "job_id": job_id,
+            "status": "queued",
+            "message": "Job submitted successfully",
+        }}), 202
+
+    except ValueError as e:
+        return jsonify({{"error": "Invalid input", "details": str(e)}}), 400
     except Exception as e:
-        return jsonify({{"error": str(e)}}), 500
+        return jsonify({{"error": "Internal error", "details": str(e)}}), 500
 
 '''
 
@@ -501,17 +618,58 @@ def {func_name}():
             method_name = m.get("name", "method")
             method_desc = m.get("description", "")
             params = m.get("params", "")
-            returns = m.get("returns", "None")
+            returns = m.get("returns", "Any")
+
+            # Parse parameters for validation
+            param_list = [p.strip().split(':')[0].strip() for p in params.split(',') if p.strip()] if params else []
 
             methods_code += f'''
     def {method_name}(self{", " + params if params else ""}) -> {returns}:
         """
         {method_desc}
+
+        Returns:
+            {returns}: Ergebnis der Operation
         """
         with self._lock:
-            # TODO: Implement {method_name}
-            pass
+            if not self._initialized:
+                raise RuntimeError("{service_name} Service nicht initialisiert")
+
+            start_time = datetime.now()
+
+            try:
+                # Validiere Parameter
+                {self._generate_param_validation(param_list)}
+
+                # Führe Operation aus
+                result = self._execute_{method_name}({", ".join(param_list)})
+
+                # Logge Erfolg
+                duration_ms = (datetime.now() - start_time).total_seconds() * 1000
+                print(f"[OK] {method_name} completed in {{duration_ms:.1f}}ms")
+
+                return result
+
+            except Exception as e:
+                print(f"[ERROR] {method_name} failed: {{e}}")
+                raise
+
+    def _execute_{method_name}(self{", " + params if params else ""}) -> {returns}:
+        """Interne Implementierung von {method_name}"""
+        # Implementiere die Kernlogik hier
+        return None
 '''
+
+        # Generate initialization code
+        init_code = f'''            # Lade Konfiguration
+            from backend.config import Config
+            self._config = Config
+
+            # Initialisiere Ressourcen
+            self._cache = {{}}
+            self._stats = {{"calls": 0, "errors": 0, "total_time_ms": 0}}
+
+            print(f"[INIT] {service_name} Service Ressourcen geladen")'''
 
         content = SERVICE_TEMPLATE.format(
             service_name=service_name,
@@ -520,7 +678,7 @@ def {func_name}():
             description=description,
             timestamp=timestamp,
             init_vars=init_vars_code,
-            init_code="            pass  # TODO: Add initialization",
+            init_code=init_code,
             methods=methods_code,
         )
 

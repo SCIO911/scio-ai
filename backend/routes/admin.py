@@ -123,10 +123,21 @@ def hardware_status():
 @admin_bp.route('/api/hardware/history')
 @require_admin
 def hardware_history():
-    """Hardware-Nutzungsverlauf (placeholder)"""
+    """Hardware-Nutzungsverlauf - Gibt historische Hardware-Metriken zurück"""
+    from backend.services.hardware_history import get_hardware_history
+
+    # Query-Parameter
+    hours = request.args.get('hours', 24, type=int)
+    resolution = request.args.get('resolution', 'minute', type=str)  # minute, hour, day
+
+    history_service = get_hardware_history()
+    data = history_service.get_history(hours=hours, resolution=resolution)
+
     return jsonify({
-        'message': 'History tracking not yet implemented',
-        'data': [],
+        'hours': hours,
+        'resolution': resolution,
+        'data_points': len(data),
+        'data': data,
     })
 
 

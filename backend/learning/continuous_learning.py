@@ -146,8 +146,8 @@ class ContinuousLearner:
                         )
                         self.patterns[pattern.pattern_id] = pattern
                 logger.info(f"{len(self.patterns)} Muster geladen")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Muster konnten nicht geladen werden: {e}")
 
     def save_patterns(self):
         """Speichert Muster"""
@@ -429,6 +429,103 @@ class ContinuousLearner:
                 for name, m in self.metrics.items()
             }
         }
+
+    def get_metrics_summary(self) -> Dict[str, Any]:
+        """
+        Gibt eine aggregierte Zusammenfassung aller Performance-Metriken zurück
+
+        Returns:
+            Dict mit Metriken-Übersicht, Health-Status und Empfehlungen
+        """
+        with self._metrics_lock:
+            if not self.metrics:
+                return {
+                    "status": "no_data",
+                    "message": "Keine Metriken verfügbar",
+                    "metrics": {},
+                    "health_score": 0.0,
+                    "recommendations": ["System muss erst Daten sammeln"]
+                }
+
+            # Berechne aggregierte Werte
+            metrics_summary = {}
+            health_indicators = []
+            recommendations = []
+
+            for name, metric in self.metrics.items():
+                avg = metric.average()
+                trend = metric.trend()
+                samples = len(metric.values)
+
+                metrics_summary[name] = {
+                    "current": round(avg, 4),
+                    "trend": round(trend, 4),
+                    "trend_direction": "improving" if trend > 0.01 else ("declining" if trend < -0.01 else "stable"),
+                    "samples": samples,
+                    "has_enough_data": samples >= 10,
+                }
+
+                # Health-Bewertung pro Metrik
+                if name == "success_rate":
+                    health_indicators.append(avg)
+                    if avg < 0.9:
+                        recommendations.append(f"Success Rate ({avg:.1%}) unter 90% - Fehleranalyse empfohlen")
+                elif name == "user_satisfaction":
+                    health_indicators.append(avg)
+                    if avg < 0.7:
+                        recommendations.append(f"User Satisfaction ({avg:.1%}) niedrig - Feedback analysieren")
+                elif name == "response_time":
+                    # Invertiert - niedrigere Werte sind besser
+                    health_indicators.append(max(0, 1 - avg / 5000))  # 5000ms als Referenz
+                    if avg > 3000:
+                        recommendations.append(f"Response Time ({avg:.0f}ms) hoch - Performance optimieren")
+                elif name == "cost_per_request":
+                    health_indicators.append(max(0, 1 - avg / 100))  # 100 cents als Referenz
+                elif name == "token_efficiency":
+                    health_indicators.append(avg)
+                    if avg < 0.5:
+                        recommendations.append("Token Efficiency niedrig - Prompt-Optimierung empfohlen")
+
+            # Gesamt Health Score (0-100)
+            health_score = (sum(health_indicators) / len(health_indicators) * 100) if health_indicators else 50.0
+
+            # Trend-basierte Empfehlungen
+            for name, data in metrics_summary.items():
+                if data["trend_direction"] == "declining" and data["has_enough_data"]:
+                    recommendations.append(f"{name} verschlechtert sich - Ursachenanalyse empfohlen")
+
+            # Pattern-basierte Empfehlungen
+            with self._patterns_lock:
+                high_conf_patterns = [p for p in self.patterns.values()
+                                     if p.confidence >= self.pattern_confidence_threshold]
+                if high_conf_patterns:
+                    best_pattern = max(high_conf_patterns, key=lambda p: p.success_rate())
+                    if best_pattern.success_rate() > 0.8:
+                        recommendations.append(
+                            f"Pattern '{best_pattern.pattern_id}' sehr erfolgreich "
+                            f"({best_pattern.success_rate():.1%}) - Häufiger anwenden"
+                        )
+
+            # Status bestimmen
+            if health_score >= 80:
+                status = "excellent"
+            elif health_score >= 60:
+                status = "good"
+            elif health_score >= 40:
+                status = "needs_attention"
+            else:
+                status = "critical"
+
+            return {
+                "status": status,
+                "health_score": round(health_score, 1),
+                "metrics": metrics_summary,
+                "patterns_active": len(self.patterns),
+                "patterns_high_confidence": len([p for p in self.patterns.values()
+                                                if p.confidence >= self.pattern_confidence_threshold]),
+                "recommendations": recommendations[:5],  # Max 5 Empfehlungen
+                "timestamp": datetime.now().isoformat(),
+            }
 
 
 # Singleton

@@ -306,8 +306,8 @@ class PerformanceTracker:
             for callback in self.on_sla_violation:
                 try:
                     callback(metrics, violations)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"SLA violation callback Fehler: {e}")
 
     def get_current_stats(self) -> Dict[str, Any]:
         """Gibt aktuelle Statistiken zurück"""

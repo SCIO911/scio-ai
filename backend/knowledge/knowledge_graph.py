@@ -163,8 +163,8 @@ class KnowledgeGraph:
                     self.add_relation(relation)
 
                 logger.info(f"Graph geladen: {len(self.entities)} Entitäten, {len(self.relations)} Relationen")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Knowledge Graph konnte nicht geladen werden: {e}")
 
     def save_graph(self):
         """Speichert den Graph"""

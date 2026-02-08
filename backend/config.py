@@ -6,6 +6,8 @@ ALLES IN C:\\SCIO - Keine externen Abhaengigkeiten
 """
 
 import os
+import secrets
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -33,7 +35,15 @@ class Config:
     SERVICE_NAME = os.getenv('SERVICE_NAME', 'SCIO')
     SERVICE_URL = os.getenv('SERVICE_URL', 'http://localhost:5000')
     SERVICE_EMAIL = os.getenv('SERVICE_EMAIL', 'noreply@scio.ai')
-    SECRET_KEY = os.getenv('SECRET_KEY', 'scio-secret-key-change-me')
+    # Generate secure secret key if not provided (warn in production)
+    _secret_key_env = os.getenv('SECRET_KEY')
+    if not _secret_key_env:
+        _secret_key_env = secrets.token_hex(32)
+        logging.getLogger(__name__).warning(
+            "SECRET_KEY not set in environment! Using generated key. "
+            "Set SECRET_KEY in .env for production."
+        )
+    SECRET_KEY = _secret_key_env
 
     # Server
     HOST = os.getenv('HOST', '0.0.0.0')

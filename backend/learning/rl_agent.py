@@ -294,8 +294,8 @@ class RLAgent:
                     self.q_agent.q_table = defaultdict(lambda: defaultdict(float), data.get("q_table", {}))
                     self.episode_count = data.get("episodes", 0)
                 logger.info(f"RL Model geladen ({self.episode_count} Episoden)")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"RL Model konnte nicht geladen werden: {e}")
 
     def save_model(self):
         """Speichert Q-Table"""

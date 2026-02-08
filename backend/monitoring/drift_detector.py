@@ -261,8 +261,8 @@ class DriftDetector:
         for callback in self.alert_callbacks:
             try:
                 callback(alert)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Drift alert callback Fehler: {e}")
 
         logger.warning(f"DRIFT {severity.value.upper()}: {metric_name} - {message}")
 

@@ -42,6 +42,8 @@ from backend.models import init_db
 from backend.routes import api_bp, admin_bp, webhooks_bp, tools_bp
 from backend.routes.autonomy import autonomy_bp
 from backend.routes.ai_modules import ai_bp
+from backend.routes.capabilities import caps_bp
+from backend.routes.orchestration import orch_bp
 
 # Load .env
 load_dotenv(Config.BASE_DIR / '.env')
@@ -69,6 +71,8 @@ app.register_blueprint(webhooks_bp)
 app.register_blueprint(tools_bp)  # Alle AI-Tools
 app.register_blueprint(autonomy_bp, url_prefix='/api/autonomy')  # Selbst-Programmierung
 app.register_blueprint(ai_bp)  # AI Modules (Decision, Learning, Planning, Knowledge, Agents, Monitoring)
+app.register_blueprint(caps_bp)  # Capabilities (100.000+ Tools)
+app.register_blueprint(orch_bp)  # Orchestration (Event Bus, Workflows, Coordination)
 
 
 # ===================================================================
@@ -576,6 +580,31 @@ def _init_ai_modules():
     except Exception as e:
         startup_logger.warning(f"Monitoring Module Fehler: {e}")
 
+    # Capability Engine - 100.000+ Tools
+    try:
+        from backend.capabilities import get_capability_engine
+        caps = get_capability_engine()
+        if caps.initialize():
+            startup_logger.info(f"Capability Engine initialisiert ({caps.registry._tool_count} Tools)")
+    except Exception as e:
+        startup_logger.warning(f"Capability Engine Fehler: {e}")
+
+
+def _init_orchestration():
+    """Initialisiert den SCIO Orchestrator für Modul-Koordination"""
+    try:
+        from backend.orchestration import get_orchestrator
+        orchestrator = get_orchestrator()
+        if orchestrator.initialize():
+            startup_logger.info("SCIO Orchestrator initialisiert - Module verbunden")
+            return True
+        else:
+            startup_logger.warning("Orchestrator konnte nicht initialisiert werden")
+            return False
+    except Exception as e:
+        startup_logger.warning(f"Orchestrator Fehler: {e}")
+        return False
+
 
 def start_services():
     """
@@ -606,6 +635,9 @@ def start_services():
 
     # 7. Erweiterte AI-Module initialisieren
     _init_ai_modules()
+
+    # 8. SCIO Orchestrator initialisieren - Verbindet alle Module
+    _init_orchestration()
 
     startup_logger.info("Alle Services gestartet - VOLLAUTOMATISCHER BETRIEB AKTIV")
 
@@ -648,13 +680,41 @@ def print_banner():
     print("   [OK] Drift Detector - Anomalie-Erkennung")
     print("   [OK] Performance Tracker - SLA Monitoring")
     print("=" * 70)
+    print("\n[TOOLS] CAPABILITY ENGINE (100.000+ Tools):")
+    print("   [OK] NLP - Text, Translation, Sentiment, NER, QA")
+    print("   [OK] Vision - Classification, Detection, Segmentation, OCR")
+    print("   [OK] Audio - STT, TTS, Music, Voice Analysis")
+    print("   [OK] Video - Generation, Editing, Tracking, Effects")
+    print("   [OK] Generative - Image, 3D, Code, Documents")
+    print("   [OK] Code - 20+ Languages, Analysis, Git, Build")
+    print("   [OK] Data - Processing, Analytics, Statistics")
+    print("   [OK] Documents - PDF, Office, Conversion")
+    print("   [OK] Web - Scraping, APIs, SEO, Automation")
+    print("   [OK] Security - Encryption, Auth, Scanning")
+    print("   [OK] Cloud - AWS, GCP, Azure, Kubernetes, Docker")
+    print("   [OK] ML/AI - Training, Deployment, Monitoring")
+    print("   [OK] Business - Finance, CRM, HR, Calendar")
+    print("   [OK] Science - Math, Statistics, Simulation")
+    print("   [OK] Visualization - Charts, Maps, Dashboards")
+    print("=" * 70)
+    print("\n[ORCH] ORCHESTRATION SYSTEM:")
+    print("   [OK] Event Bus - Pub/Sub Cross-Module Kommunikation")
+    print("   [OK] Workflow Engine - Multi-Step Orchestrierung")
+    print("   [OK] Orchestrator - Zentrale Modul-Koordination")
+    print("   [OK] Auto-Feedback - RL lernt aus Job-Ergebnissen")
+    print("   [OK] Knowledge Updates - Entscheidungen -> Graph")
+    print("   [OK] Drift Alerts - Automatische Benachrichtigung")
+    print("   [OK] Health Monitoring - Alle Module ueberwacht")
+    print("=" * 70)
     print("\n[JOB] ENDPOINTS:")
-    print("   [NET] http://localhost:5000              Kunden-Portal")
-    print("   [SETUP] http://localhost:5000/admin        Admin Dashboard")
-    print("   [DOCS] http://localhost:5000/docs         API Dokumentation")
-    print("   [HEALTH] http://localhost:5000/health       Health Check")
-    print("   [BRAIN] http://localhost:5000/api/autonomy  Autonomie-API")
-    print("   [AI] http://localhost:5000/api/ai         AI Modules API")
+    print("   [NET] http://localhost:5000                     Kunden-Portal")
+    print("   [SETUP] http://localhost:5000/admin               Admin Dashboard")
+    print("   [DOCS] http://localhost:5000/docs                API Dokumentation")
+    print("   [HEALTH] http://localhost:5000/health              Health Check")
+    print("   [BRAIN] http://localhost:5000/api/autonomy         Autonomie-API")
+    print("   [AI] http://localhost:5000/api/ai                AI Modules API")
+    print("   [CAPS] http://localhost:5000/api/capabilities      100.000+ Tools")
+    print("   [ORCH] http://localhost:5000/api/orchestration     Orchestration API")
     print("=" * 70)
     print(f"\n[NET] Server: http://localhost:{Config.PORT}")
     print("[AUTO] System laeuft vollautomatisch - keine manuellen Eingriffe noetig!")
