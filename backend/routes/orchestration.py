@@ -216,36 +216,22 @@ def workflows_create():
     """Erstellt einen neuen Workflow"""
     try:
         from backend.orchestration import get_workflow_engine
-        from backend.orchestration.workflow_engine import WorkflowStep, StepType
         engine = get_workflow_engine()
 
         data = request.json or {}
         name = data.get('name', 'custom_workflow')
+        description = data.get('description', '')
         steps_data = data.get('steps', [])
 
         if not steps_data:
             return jsonify({'error': 'Workflow steps required'}), 400
 
-        # Steps konvertieren
-        steps = []
-        for i, step_data in enumerate(steps_data):
-            try:
-                step_type = StepType(step_data.get('type', 'custom'))
-            except ValueError:
-                step_type = StepType.CUSTOM
-
-            step = WorkflowStep(
-                id=step_data.get('id', f'step_{i}'),
-                name=step_data.get('name', f'Step {i}'),
-                type=step_type,
-                config=step_data.get('config', {}),
-                next_step=step_data.get('next_step'),
-                on_error=step_data.get('on_error')
-            )
-            steps.append(step)
-
-        # Workflow erstellen
-        workflow = engine.create_workflow(name, steps)
+        # Workflow erstellen (steps werden intern konvertiert)
+        workflow = engine.create_workflow(
+            name=name,
+            description=description,
+            steps=steps_data
+        )
 
         return jsonify({
             "workflow_id": workflow.id,

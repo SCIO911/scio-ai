@@ -28,11 +28,14 @@ logging.getLogger('werkzeug').setLevel(logging.ERROR)
 logging.getLogger('engineio').setLevel(logging.ERROR)
 logging.getLogger('socketio').setLevel(logging.ERROR)
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import stripe
 from dotenv import load_dotenv
+import uuid
+import signal
+import atexit
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,10 +57,279 @@ load_dotenv(Config.BASE_DIR / '.env')
 
 app = Flask(__name__, static_folder='../frontend')
 app.config['SECRET_KEY'] = Config.SECRET_KEY
-CORS(app)
 
-# WebSocket Support (threading mode - compatible with torch)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# Sichere CORS-Konfiguration (nicht mehr wildcard *)
+CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5000",
+]
+# Produktions-Domain hinzufügen wenn konfiguriert
+if hasattr(Config, 'PRODUCTION_DOMAIN') and Config.PRODUCTION_DOMAIN:
+    CORS_ORIGINS.append(f"https://{Config.PRODUCTION_DOMAIN}")
+
+CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
+
+# WebSocket Support (mit sicherer CORS-Konfiguration)
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=CORS_ORIGINS,
+    async_mode='threading'
+)
+
+# Rate Limiting
+from backend.core.security import RateLimiter, RateLimitConfig, RateLimitExceeded
+
+rate_limiter = RateLimiter(RateLimitConfig(
+    requests_per_second=20,
+    requests_per_minute=200,
+    requests_per_hour=5000,
+    burst_size=50,
+    block_duration_seconds=60
+))
+
+@app.before_request
+def check_rate_limit():
+    """Rate Limiting für alle API-Requests"""
+    if request.path.startswith('/api/'):
+        # Client-ID aus IP oder API-Key
+        client_id = request.headers.get('X-API-Key', request.remote_addr)
+        if not rate_limiter.is_allowed(client_id):
+            remaining = rate_limiter.get_remaining(client_id)
+            return jsonify({
+                'error': 'Rate limit exceeded',
+                'retry_after': 60,
+                'remaining': remaining
+            }), 429
+
+@app.after_request
+def add_security_headers(response):
+    """Sicherheits-Header für alle Responses"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
+
+
+# ===================================================================
+# REQUEST TRACING & AUDIT LOGGING
+# ===================================================================
+
+# Audit Logger
+audit_logger = logging.getLogger('scio.audit')
+audit_logger.setLevel(logging.INFO)
+
+# Request Tracing
+@app.before_request
+def start_request_tracing():
+    """Startet Request-Tracing mit eindeutiger Request-ID"""
+    g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4())[:8])
+    g.request_start = time.time()
+
+@app.after_request
+def complete_request_tracing(response):
+    """Komplettiert Request-Tracing und Audit-Logging"""
+    # Request-ID in Response-Header
+    response.headers['X-Request-ID'] = getattr(g, 'request_id', 'unknown')
+
+    # Request-Dauer berechnen
+    duration_ms = 0
+    if hasattr(g, 'request_start'):
+        duration_ms = (time.time() - g.request_start) * 1000
+    response.headers['X-Response-Time'] = f"{duration_ms:.2f}ms"
+
+    # Audit-Log für API-Requests
+    if request.path.startswith('/api/'):
+        audit_logger.info(
+            f"[{g.request_id}] {request.method} {request.path} "
+            f"-> {response.status_code} ({duration_ms:.1f}ms) "
+            f"client={request.remote_addr}"
+        )
+
+    return response
+
+
+# ===================================================================
+# HEALTH PROBES (Kubernetes-kompatibel)
+# ===================================================================
+
+# Globale Shutdown-Flag
+_shutdown_requested = False
+_ready = False
+
+
+@app.route('/healthz')
+@app.route('/health/live')
+def liveness_probe():
+    """
+    Kubernetes Liveness Probe
+
+    Prüft ob der Prozess noch lebt.
+    Bei Failure wird der Container neu gestartet.
+    """
+    if _shutdown_requested:
+        return jsonify({'status': 'shutting_down'}), 503
+
+    return jsonify({
+        'status': 'alive',
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/readyz')
+@app.route('/health/ready')
+def readiness_probe():
+    """
+    Kubernetes Readiness Probe
+
+    Prüft ob der Service bereit ist, Traffic zu empfangen.
+    Bei Failure wird kein Traffic mehr geroutet.
+    """
+    if _shutdown_requested:
+        return jsonify({'status': 'shutting_down', 'ready': False}), 503
+
+    if not _ready:
+        return jsonify({'status': 'starting', 'ready': False}), 503
+
+    # Prüfe kritische Abhängigkeiten
+    checks = {}
+    all_healthy = True
+
+    # Health Checker aus Core nutzen
+    try:
+        from backend.core.reliability import get_health_checker
+        health = get_health_checker()
+        results = health.check_all()
+
+        for name, status in results.items():
+            checks[name] = {
+                'healthy': status.healthy,
+                'latency_ms': status.latency_ms,
+                'message': status.message
+            }
+            if not status.healthy:
+                all_healthy = False
+    except Exception as e:
+        checks['health_checker'] = {'healthy': False, 'message': str(e)}
+        all_healthy = False
+
+    if not all_healthy:
+        return jsonify({
+            'status': 'degraded',
+            'ready': False,
+            'checks': checks
+        }), 503
+
+    return jsonify({
+        'status': 'ready',
+        'ready': True,
+        'checks': checks,
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/health/startup')
+def startup_probe():
+    """
+    Kubernetes Startup Probe
+
+    Prüft ob der Service noch am Starten ist.
+    Gibt Kubernetes Zeit für langsame Startups.
+    """
+    if _ready:
+        return jsonify({'status': 'started', 'ready': True}), 200
+
+    return jsonify({
+        'status': 'starting',
+        'ready': False,
+        'timestamp': datetime.now().isoformat()
+    }), 503
+
+
+# ===================================================================
+# GRACEFUL SHUTDOWN
+# ===================================================================
+
+def graceful_shutdown(signum=None, frame=None):
+    """
+    Graceful Shutdown Handler
+
+    Beendet alle Services sauber:
+    1. Stoppt neue Request-Annahme
+    2. Wartet auf laufende Requests
+    3. Stoppt Background-Services
+    4. Speichert State
+    """
+    global _shutdown_requested, _ready
+    _shutdown_requested = True
+    _ready = False
+
+    print("\n[SHUTDOWN] Graceful Shutdown gestartet...")
+    shutdown_logger = logging.getLogger('scio.shutdown')
+
+    try:
+        # 1. Event Bus stoppen
+        try:
+            from backend.orchestration.event_bus import get_event_bus
+            event_bus = get_event_bus()
+            event_bus.stop()
+            shutdown_logger.info("Event Bus gestoppt")
+        except Exception as e:
+            shutdown_logger.warning(f"Event Bus Stop-Fehler: {e}")
+
+        # 2. Job Queue stoppen (laufende Jobs abwarten)
+        try:
+            from backend.services.job_queue import get_job_queue
+            queue = get_job_queue()
+            queue.stop(wait=True, timeout=30)
+            shutdown_logger.info("Job Queue gestoppt")
+        except Exception as e:
+            shutdown_logger.warning(f"Job Queue Stop-Fehler: {e}")
+
+        # 3. Multi-Agent System stoppen
+        try:
+            from backend.agents import get_multi_agent_system
+            mas = get_multi_agent_system()
+            mas.stop()
+            shutdown_logger.info("Multi-Agent System gestoppt")
+        except Exception as e:
+            shutdown_logger.warning(f"Multi-Agent Stop-Fehler: {e}")
+
+        # 4. Hardware Monitor stoppen
+        try:
+            from backend.services.hardware_monitor import get_hardware_monitor
+            monitor = get_hardware_monitor()
+            monitor.stop()
+            shutdown_logger.info("Hardware Monitor gestoppt")
+        except Exception as e:
+            shutdown_logger.warning(f"Hardware Monitor Stop-Fehler: {e}")
+
+        # 5. RL Agent State speichern
+        try:
+            from backend.learning import get_rl_agent
+            agent = get_rl_agent()
+            agent.save_state()
+            shutdown_logger.info("RL Agent State gespeichert")
+        except Exception as e:
+            shutdown_logger.warning(f"RL Agent Save-Fehler: {e}")
+
+        print("[SHUTDOWN] Graceful Shutdown abgeschlossen")
+
+    except Exception as e:
+        print(f"[SHUTDOWN] Fehler beim Shutdown: {e}")
+
+    # Bei Signal-Handler: Prozess beenden
+    if signum is not None:
+        sys.exit(0)
+
+
+# Signal-Handler registrieren
+signal.signal(signal.SIGTERM, graceful_shutdown)
+signal.signal(signal.SIGINT, graceful_shutdown)
+atexit.register(graceful_shutdown)
+
 
 # Stripe
 stripe.api_key = Config.STRIPE_SECRET_KEY
@@ -606,6 +878,55 @@ def _init_orchestration():
         return False
 
 
+def _register_health_checks():
+    """Registriert Health Checks für alle kritischen Services"""
+    from backend.core.reliability import get_health_checker
+
+    health = get_health_checker()
+
+    # Database Health Check
+    @health.register("database", timeout_seconds=5.0)
+    def check_database():
+        try:
+            from backend.models import get_session
+            session = get_session()
+            session.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+
+    # Job Queue Health Check
+    @health.register("job_queue", timeout_seconds=3.0)
+    def check_job_queue():
+        try:
+            from backend.services.job_queue import get_job_queue
+            queue = get_job_queue()
+            return queue.is_running
+        except Exception:
+            return False
+
+    # Event Bus Health Check
+    @health.register("event_bus", timeout_seconds=2.0)
+    def check_event_bus():
+        try:
+            from backend.orchestration.event_bus import get_event_bus
+            bus = get_event_bus()
+            return bus._running
+        except Exception:
+            return False
+
+    # Hardware Monitor Health Check
+    @health.register("hardware_monitor", timeout_seconds=3.0)
+    def check_hardware():
+        try:
+            from backend.services.hardware_monitor import get_hardware_monitor
+            monitor = get_hardware_monitor()
+            status = monitor.get_status()
+            return status is not None
+        except Exception:
+            return False
+
+
 def start_services():
     """
     Startet alle Background-Services - VOLLAUTOMATISCH
@@ -613,7 +934,11 @@ def start_services():
     Diese Funktion orchestriert den Start aller SCIO-Services
     in der richtigen Reihenfolge mit Fehlerbehandlung.
     """
+    global _ready
     startup_logger.info("Starte Services (Vollautomatischer Modus)...")
+
+    # 0. Health Checks registrieren
+    _register_health_checks()
 
     # 1. Datenbank initialisieren (kritisch)
     _init_database()
@@ -638,6 +963,9 @@ def start_services():
 
     # 8. SCIO Orchestrator initialisieren - Verbindet alle Module
     _init_orchestration()
+
+    # 9. Service als bereit markieren
+    _ready = True
 
     startup_logger.info("Alle Services gestartet - VOLLAUTOMATISCHER BETRIEB AKTIV")
 
@@ -706,11 +1034,23 @@ def print_banner():
     print("   [OK] Drift Alerts - Automatische Benachrichtigung")
     print("   [OK] Health Monitoring - Alle Module ueberwacht")
     print("=" * 70)
+    print("\n[PROD] PRODUCTION FEATURES:")
+    print("   [OK] Health Probes - /healthz, /readyz (Kubernetes)")
+    print("   [OK] Request Tracing - X-Request-ID Header")
+    print("   [OK] Audit Logging - API Request/Response Log")
+    print("   [OK] Graceful Shutdown - SIGTERM/SIGINT Handler")
+    print("   [OK] Rate Limiting - Token Bucket + Multi-Window")
+    print("   [OK] Security Headers - XSS, CSRF, Clickjacking")
+    print("   [OK] Circuit Breakers - Fault Tolerance")
+    print("   [OK] Retry Logic - Exponential Backoff")
+    print("=" * 70)
     print("\n[JOB] ENDPOINTS:")
     print("   [NET] http://localhost:5000                     Kunden-Portal")
     print("   [SETUP] http://localhost:5000/admin               Admin Dashboard")
     print("   [DOCS] http://localhost:5000/docs                API Dokumentation")
     print("   [HEALTH] http://localhost:5000/health              Health Check")
+    print("   [PROBE] http://localhost:5000/healthz              Liveness Probe")
+    print("   [PROBE] http://localhost:5000/readyz               Readiness Probe")
     print("   [BRAIN] http://localhost:5000/api/autonomy         Autonomie-API")
     print("   [AI] http://localhost:5000/api/ai                AI Modules API")
     print("   [CAPS] http://localhost:5000/api/capabilities      100.000+ Tools")

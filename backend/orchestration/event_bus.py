@@ -91,6 +91,17 @@ class Event:
     correlation_id: Optional[str] = None  # Für zusammenhängende Events
     priority: int = 0  # Höher = wichtiger
 
+    def __lt__(self, other):
+        """Vergleich für PriorityQueue (nach timestamp)"""
+        if not isinstance(other, Event):
+            return NotImplemented
+        return self.timestamp < other.timestamp
+
+    def __le__(self, other):
+        if not isinstance(other, Event):
+            return NotImplemented
+        return self.timestamp <= other.timestamp
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -105,53 +116,79 @@ class Event:
 
 class EventBus:
     """
-    SCIO Event Bus
+    SCIO Event Bus (Optimiert)
 
     Zentrales Pub/Sub-System für alle Module:
-    - Asynchrone Event-Verarbeitung
+    - Asynchrone Event-Verarbeitung mit Thread Pool
     - Pattern-basierte Subscriptions
-    - Event-History
+    - Begrenzte Event-History
     - Prioritäts-basierte Verarbeitung
+    - Non-blocking Callback-Ausführung
     """
+
+    # Konstanten
+    HISTORY_LIMIT = 1000
+    CALLBACK_POOL_SIZE = 10
+    CALLBACK_TIMEOUT = 2.0  # Sekunden
+    QUEUE_MAX_SIZE = 10000
 
     def __init__(self):
         self.subscribers: Dict[str, List[Callable]] = defaultdict(list)
         self.pattern_subscribers: List[tuple] = []  # (pattern, callback)
-        self.event_queue: queue.PriorityQueue = queue.PriorityQueue()
+        self.event_queue: queue.PriorityQueue = queue.PriorityQueue(maxsize=self.QUEUE_MAX_SIZE)
         self.event_history: List[Event] = []
-        self.history_limit = 1000
+        self.history_limit = self.HISTORY_LIMIT
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._callback_threads: List[threading.Thread] = []
+        self._callback_queue: queue.Queue = queue.Queue()
         self._event_counter = 0
         self._lock = threading.Lock()
         self._initialized = False
+
+        # Statistiken
+        self._events_processed = 0
+        self._callbacks_executed = 0
+        self._callbacks_failed = 0
+        self._queue_full_count = 0
 
     def initialize(self) -> bool:
         """Initialisiert den Event Bus"""
         try:
             self._initialized = True
             self.start()
-            print("[OK] Event Bus initialisiert")
+            print("[OK] Event Bus initialisiert (Thread Pool aktiviert)")
             return True
         except Exception as e:
             print(f"[ERROR] Event Bus Fehler: {e}")
             return False
 
     def start(self):
-        """Startet die Event-Verarbeitung"""
+        """Startet die Event-Verarbeitung mit Thread Pool"""
         if self._running:
             return
 
         self._running = True
+
+        # Haupt-Event-Processing-Thread
         self._thread = threading.Thread(target=self._process_events, daemon=True)
         self._thread.start()
+
+        # Callback-Thread-Pool starten
+        for i in range(self.CALLBACK_POOL_SIZE):
+            t = threading.Thread(target=self._callback_worker, daemon=True)
+            t.start()
+            self._callback_threads.append(t)
 
     def stop(self):
         """Stoppt die Event-Verarbeitung"""
         self._running = False
         if self._thread:
             self._thread.join(timeout=5)
+        for t in self._callback_threads:
+            t.join(timeout=1)
+        self._callback_threads.clear()
 
     def subscribe(self, event_type: EventType, callback: Callable):
         """
@@ -220,7 +257,7 @@ class EventBus:
         return event_id
 
     def _process_events(self):
-        """Event-Processing Loop"""
+        """Event-Processing Loop (non-blocking)"""
         while self._running:
             try:
                 # Timeout damit wir shutdown erkennen können
@@ -229,26 +266,50 @@ class EventBus:
                 except queue.Empty:
                     continue
 
+                self._events_processed += 1
+
                 # Event in History speichern
                 self._store_event(event)
 
-                # Direkte Subscribers benachrichtigen
-                for callback in self.subscribers.get(event.type.value, []):
-                    try:
-                        callback(event)
-                    except Exception as e:
-                        print(f"[WARN] Event callback error: {e}")
+                # Callbacks an Thread Pool delegieren (non-blocking!)
+                callbacks = list(self.subscribers.get(event.type.value, []))
 
-                # Pattern-Subscribers prüfen
+                # Pattern-Subscribers hinzufügen
                 for pattern, callback in self.pattern_subscribers:
                     if self._matches_pattern(event.type.value, pattern):
-                        try:
-                            callback(event)
-                        except Exception as e:
-                            print(f"[WARN] Pattern callback error: {e}")
+                        callbacks.append(callback)
+
+                # Alle Callbacks zur Queue hinzufügen
+                for callback in callbacks:
+                    try:
+                        self._callback_queue.put_nowait((callback, event))
+                    except queue.Full:
+                        # Queue voll - Callback überspringen aber loggen
+                        self._callbacks_failed += 1
 
             except Exception as e:
                 print(f"[ERROR] Event processing error: {e}")
+
+    def _callback_worker(self):
+        """Worker-Thread für Callback-Ausführung"""
+        while self._running:
+            try:
+                try:
+                    callback, event = self._callback_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+
+                try:
+                    callback(event)
+                    self._callbacks_executed += 1
+                except Exception as e:
+                    self._callbacks_failed += 1
+                    # Nur debug-loggen um Spam zu vermeiden
+                    import logging
+                    logging.getLogger(__name__).debug(f"Callback error: {e}")
+
+            except Exception as e:
+                print(f"[ERROR] Callback worker error: {e}")
 
     def _matches_pattern(self, event_type: str, pattern: str) -> bool:
         """Prüft ob Event-Typ zu Pattern passt"""
@@ -290,7 +351,7 @@ class EventBus:
         return events[-limit:]
 
     def get_statistics(self) -> Dict[str, Any]:
-        """Gibt Statistiken zurück"""
+        """Gibt erweiterte Statistiken zurück"""
         type_counts = defaultdict(int)
         source_counts = defaultdict(int)
 
@@ -300,10 +361,16 @@ class EventBus:
 
         return {
             "total_events": self._event_counter,
+            "events_processed": self._events_processed,
             "history_size": len(self.event_history),
+            "history_limit": self.history_limit,
             "subscribers": len(self.subscribers),
             "pattern_subscribers": len(self.pattern_subscribers),
             "queue_size": self.event_queue.qsize(),
+            "callback_queue_size": self._callback_queue.qsize(),
+            "callback_threads": len(self._callback_threads),
+            "callbacks_executed": self._callbacks_executed,
+            "callbacks_failed": self._callbacks_failed,
             "running": self._running,
             "events_by_type": dict(type_counts),
             "events_by_source": dict(source_counts)

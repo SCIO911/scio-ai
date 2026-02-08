@@ -15,6 +15,11 @@ from queue import Queue
 
 from .event_bus import EventBus, EventType, get_event_bus
 
+# Sichere Expression-Auswertung statt eval()
+from backend.core.security import SafeExpressionEvaluator
+# Plugin-System für Custom Handler
+from backend.core.plugins import get_workflow_handlers, PluginNotFoundError, PluginDisabledError
+
 
 class StepType(str, Enum):
     """Typen von Workflow-Schritten"""
@@ -440,13 +445,14 @@ class WorkflowEngine:
             if not deps_met:
                 continue
 
-            # Prüfe Bedingung
+            # Prüfe Bedingung (sicher ohne eval)
             if step.condition:
                 try:
-                    if not eval(step.condition, {"ctx": workflow.context}):
+                    evaluator = SafeExpressionEvaluator({"ctx": workflow.context})
+                    if not evaluator.evaluate(step.condition):
                         step.status = StepStatus.SKIPPED
                         continue
-                except:
+                except (ValueError, Exception):
                     continue
 
             return step
@@ -658,9 +664,15 @@ class WorkflowEngine:
         raise Exception("Job timeout")
 
     def _handle_condition(self, workflow: Workflow, step: WorkflowStep) -> Dict:
-        """Prüft Bedingung"""
+        """Prüft Bedingung (sicher ohne eval)"""
         condition = step.config.get("condition", "True")
-        result = eval(condition, {"ctx": workflow.context})
+
+        try:
+            evaluator = SafeExpressionEvaluator({"ctx": workflow.context})
+            result = evaluator.evaluate(condition)
+        except ValueError as e:
+            result = False
+            workflow.context["condition_error"] = str(e)
 
         workflow.context["condition_result"] = result
 
@@ -694,7 +706,7 @@ class WorkflowEngine:
         return {"parallel_results": results}
 
     def _handle_loop(self, workflow: Workflow, step: WorkflowStep) -> Dict:
-        """Führt Loop aus"""
+        """Führt Loop aus (sicher ohne eval)"""
         iterations = step.config.get("iterations", 1)
         condition = step.config.get("while_condition")
         sub_step_config = step.config.get("step", {})
@@ -703,8 +715,12 @@ class WorkflowEngine:
         i = 0
         while True:
             if condition:
-                if not eval(condition, {"ctx": workflow.context, "i": i}):
-                    break
+                try:
+                    evaluator = SafeExpressionEvaluator({"ctx": workflow.context, "i": i})
+                    if not evaluator.evaluate(condition):
+                        break
+                except ValueError:
+                    break  # Bei ungültiger Bedingung abbrechen
             elif i >= iterations:
                 break
 
@@ -728,13 +744,45 @@ class WorkflowEngine:
         return {"iterations": len(results), "results": results}
 
     def _handle_custom(self, workflow: Workflow, step: WorkflowStep) -> Dict:
-        """Führt Custom Handler aus"""
+        """
+        Führt Custom Handler aus dem Plugin-System aus
+
+        Custom Handler werden über das WorkflowHandlerRegistry registriert:
+
+            from backend.core.plugins import get_workflow_handlers
+
+            handlers = get_workflow_handlers()
+
+            @handlers.register("my_custom_handler", description="Mein Handler")
+            def my_handler(workflow, step):
+                # Zugriff auf workflow.context
+                data = workflow.context.get('input_data', {})
+                # Verarbeitung...
+                return {"processed": True, "result": data}
+
+        Verwendung in Workflow-Step:
+            {"type": "custom", "config": {"handler": "my_custom_handler"}}
+        """
         handler_name = step.config.get("handler")
         if not handler_name:
-            return {"status": "no_handler"}
+            return {"status": "no_handler", "error": "No handler name specified"}
 
-        # Custom Handlers könnten hier registriert werden
-        return {"status": "custom_executed"}
+        # Plugin-System für Custom Handler nutzen
+        handlers = get_workflow_handlers()
+
+        try:
+            # Handler über Plugin-System ausführen
+            result = handlers.execute(handler_name, workflow, step)
+            return {"status": "executed", "handler": handler_name, "result": result}
+
+        except PluginNotFoundError:
+            return {"status": "error", "error": f"Handler '{handler_name}' not found"}
+
+        except PluginDisabledError:
+            return {"status": "error", "error": f"Handler '{handler_name}' is disabled"}
+
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
 
     # ═══════════════════════════════════════════════════════════════
     # EVENT HANDLERS
@@ -903,12 +951,74 @@ class WorkflowEngine:
         for wf in self.workflows.values():
             status_counts[wf.status] = status_counts.get(wf.status, 0) + 1
 
+        handlers = get_workflow_handlers()
+
         return {
             "total_workflows": len(self.workflows),
             "running_workflows": len(self.running_workflows),
             "status_distribution": status_counts,
-            "step_handlers": len(self.step_handlers)
+            "step_handlers": len(self.step_handlers),
+            "custom_handlers": len(handlers.list_plugins())
         }
+
+    # ═══════════════════════════════════════════════════════════════
+    # CUSTOM HANDLER REGISTRATION
+    # ═══════════════════════════════════════════════════════════════
+
+    def register_custom_handler(self,
+                                 name: str,
+                                 handler_func: Callable,
+                                 description: str = "",
+                                 version: str = "1.0.0"):
+        """
+        Registriert einen Custom Handler für Workflows
+
+        Args:
+            name: Eindeutiger Handler-Name
+            handler_func: Funktion(workflow, step) -> Dict
+            description: Beschreibung des Handlers
+            version: Version des Handlers
+
+        Beispiel:
+            def my_handler(workflow, step):
+                data = workflow.context.get('data')
+                return {"processed": True}
+
+            engine.register_custom_handler("my_handler", my_handler, "Verarbeitet Daten")
+        """
+        handlers = get_workflow_handlers()
+        handlers.register_handler(name, handler_func, version, description)
+
+    def list_custom_handlers(self) -> List[Dict[str, Any]]:
+        """Gibt Liste aller registrierten Custom Handler zurück"""
+        handlers = get_workflow_handlers()
+        return handlers.list_plugins()
+
+    def get_custom_handler_info(self, name: str) -> Optional[Dict[str, Any]]:
+        """Gibt Info über einen spezifischen Handler zurück"""
+        handlers = get_workflow_handlers()
+        plugin = handlers.get(name)
+        if plugin:
+            return {
+                'name': plugin.name,
+                'version': plugin.version,
+                'description': plugin.description,
+                'author': plugin.author,
+                'enabled': plugin.enabled,
+                'registered_at': plugin.registered_at.isoformat(),
+                'metadata': plugin.metadata
+            }
+        return None
+
+    def enable_custom_handler(self, name: str) -> bool:
+        """Aktiviert einen Custom Handler"""
+        handlers = get_workflow_handlers()
+        return handlers.enable(name)
+
+    def disable_custom_handler(self, name: str) -> bool:
+        """Deaktiviert einen Custom Handler"""
+        handlers = get_workflow_handlers()
+        return handlers.disable(name)
 
 
 # Singleton

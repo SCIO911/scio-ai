@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+# Sichere Expression-Auswertung statt eval()
+from backend.core.security import SafeExpressionEvaluator, safe_eval
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,15 +86,19 @@ class DecisionTree:
                 reasoning.append(f"→ Action: {node.action}")
                 return node.action, reasoning
 
-            # Bedingung evaluieren
+            # Bedingung sicher evaluieren (kein eval!)
             try:
-                result = eval(node.condition, {"__builtins__": {}}, context)
+                result = safe_eval(node.condition, context)
                 reasoning.append(f"Check: {node.condition} = {result}")
 
                 if result:
                     current_id = node.true_branch
                 else:
                     current_id = node.false_branch
+            except ValueError as e:
+                # Ungültiger Ausdruck
+                reasoning.append(f"Invalid condition {node.condition}: {e}")
+                return "error", reasoning
             except Exception as e:
                 reasoning.append(f"Error evaluating {node.condition}: {e}")
                 return "error", reasoning
