@@ -177,9 +177,9 @@ steps:
         exp = ExperimentSchema(
             name="order_test",
             steps=[
-                {"id": "c", "type": "tool", "depends_on": ["a", "b"]},
-                {"id": "a", "type": "tool"},
-                {"id": "b", "type": "tool", "depends_on": ["a"]},
+                {"id": "c", "type": "tool", "tool": "math", "depends_on": ["a", "b"]},
+                {"id": "a", "type": "tool", "tool": "math"},
+                {"id": "b", "type": "tool", "tool": "math", "depends_on": ["a"]},
             ]
         )
         order = exp.get_execution_order()
@@ -198,8 +198,8 @@ steps:
         exp = ExperimentSchema(
             name="circular_test",
             steps=[
-                {"id": "a", "type": "tool", "depends_on": ["b"]},
-                {"id": "b", "type": "tool", "depends_on": ["a"]},
+                {"id": "a", "type": "tool", "tool": "math", "depends_on": ["b"]},
+                {"id": "b", "type": "tool", "tool": "math", "depends_on": ["a"]},
             ]
         )
         try:
@@ -276,7 +276,7 @@ def test_validation():
         # Experiment ohne Autor
         exp = ExperimentSchema(
             name="test",
-            steps=[{"id": "s1", "type": "tool"}]
+            steps=[{"id": "s1", "type": "tool", "tool": "math"}]
         )
         report = validator.validate(exp)
 
@@ -301,6 +301,7 @@ def test_validation():
             steps=[{
                 "id": "s1",
                 "type": "tool",
+                "tool": "python_executor",
                 "inputs": {"cmd": "eval(user_input)"}
             }]
         )
@@ -326,7 +327,7 @@ def test_validation():
 
         exp = ExperimentSchema(
             name="chain_test",
-            steps=[{"id": "s1", "type": "tool"}]
+            steps=[{"id": "s1", "type": "tool", "tool": "math"}]
         )
         report = chain.validate(exp)
 
@@ -1076,6 +1077,7 @@ metadata:
 steps:
   - id: step1
     type: tool
+    tool: math
 """)
             temp_path = f.name
 
@@ -1162,7 +1164,7 @@ def test_api():
             "experiment": {
                 "name": "api_test",
                 "version": "1.0",
-                "steps": [{"id": "s1", "type": "tool"}]
+                "steps": [{"id": "s1", "type": "tool", "tool": "math"}]
             },
             "strict": False
         })
@@ -1273,7 +1275,7 @@ def test_edge_cases():
             ExperimentSchema(
                 name="invalid_version",
                 version="not-a-version",
-                steps=[{"id": "s1", "type": "tool"}]
+                steps=[{"id": "s1", "type": "tool", "tool": "math"}]
             )
             fail("Invalid Version: Sollte Fehler werfen")
         except Exception:
@@ -1290,7 +1292,7 @@ def test_edge_cases():
         try:
             ExperimentSchema(
                 name="invalid_id",
-                steps=[{"id": "123-invalid", "type": "tool"}]  # Muss mit Buchstabe beginnen
+                steps=[{"id": "123-invalid", "type": "tool", "tool": "math"}]  # Muss mit Buchstabe beginnen
             )
             fail("Invalid ID: Sollte Fehler werfen")
         except Exception:

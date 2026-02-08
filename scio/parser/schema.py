@@ -72,6 +72,7 @@ class StepSchema(BaseModel):
     id: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     type: StepType = Field(default=StepType.AGENT)
     agent: Optional[str] = Field(default=None, description="Referenz auf Agent-ID")
+    tool: Optional[str] = Field(default=None, description="Referenz auf Tool-Name")
     action: Optional[str] = Field(default=None, description="Auszuführende Aktion")
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: list[str] = Field(default_factory=list)
@@ -81,9 +82,11 @@ class StepSchema(BaseModel):
     condition: Optional[str] = Field(default=None, description="Ausführungsbedingung")
 
     @model_validator(mode="after")
-    def validate_agent_step(self) -> "StepSchema":
+    def validate_step(self) -> "StepSchema":
         if self.type == StepType.AGENT and not self.agent:
             raise ValueError("Agent-Schritte benötigen eine Agent-Referenz")
+        if self.type == StepType.TOOL and not self.tool:
+            raise ValueError("Tool-Schritte benötigen eine Tool-Referenz")
         return self
 
 

@@ -78,8 +78,8 @@ class TestExperimentSchema:
             exp = ExperimentSchema(
                 name="test",
                 steps=[
-                    {"id": "a", "type": "tool", "depends_on": ["b"]},
-                    {"id": "b", "type": "tool", "depends_on": ["a"]},
+                    {"id": "a", "type": "tool", "tool": "math", "depends_on": ["b"]},
+                    {"id": "b", "type": "tool", "tool": "math", "depends_on": ["a"]},
                 ],
             )
             exp.get_execution_order()

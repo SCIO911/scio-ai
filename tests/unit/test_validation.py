@@ -60,7 +60,7 @@ class TestScientificValidator:
         """Warnt bei fehlendem Autor."""
         exp = ExperimentSchema(
             name="test",
-            steps=[{"id": "s1", "type": "tool"}],
+            steps=[{"id": "s1", "type": "tool", "tool": "math"}],
         )
 
         validator = ScientificValidator()
@@ -81,6 +81,7 @@ class TestSecurityValidator:
                 {
                     "id": "s1",
                     "type": "tool",
+                    "tool": "python_executor",
                     "inputs": {"cmd": "eval(user_input)"},
                 }
             ],
@@ -130,6 +131,7 @@ class TestValidationChain:
                 {
                     "id": "s1",
                     "type": "tool",
+                    "tool": "python_executor",
                     "inputs": {"cmd": "eval(x)"},
                 }
             ],

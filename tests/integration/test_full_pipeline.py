@@ -40,9 +40,9 @@ class TestFullPipeline:
         experiment = ExperimentSchema(
             name="order_test",
             steps=[
-                {"id": "c", "type": "tool", "depends_on": ["a", "b"]},
-                {"id": "a", "type": "tool"},
-                {"id": "b", "type": "tool", "depends_on": ["a"]},
+                {"id": "c", "type": "tool", "tool": "math", "depends_on": ["a", "b"]},
+                {"id": "a", "type": "tool", "tool": "math"},
+                {"id": "b", "type": "tool", "tool": "math", "depends_on": ["a"]},
             ],
         )
 

@@ -1,0 +1,50 @@
+# SCIO Tool Test Experiment
+# Tests tool execution through the engine
+
+name: tool_test
+version: "1.0"
+
+metadata:
+  author: SCIO Team
+  description: Tool test experiment
+  tags:
+    - test
+
+parameters:
+  - name: x
+    type: int
+    default: 5
+    description: First number
+  - name: y
+    type: int
+    default: 3
+    description: Second number
+
+agents: []
+
+steps:
+  - id: math_add
+    type: tool
+    tool: math
+    inputs:
+      operation: add
+      a: "${x}"
+      b: "${y}"
+    outputs:
+      - sum
+
+  - id: math_multiply
+    type: tool
+    tool: math
+    depends_on:
+      - math_add
+    inputs:
+      operation: multiply
+      a: "${step.math_add.output}"
+      b: 2
+    outputs:
+      - product
+
+outputs:
+  sum: Sum of x and y
+  product: Product of sum and 2

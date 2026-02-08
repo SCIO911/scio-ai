@@ -1,0 +1,48 @@
+# SCIO Simple Test Experiment
+# Tests the execution engine with basic steps
+
+name: simple_test
+version: "1.0"
+
+metadata:
+  author: SCIO Team
+  description: Simple test experiment for engine verification
+  tags:
+    - test
+
+parameters:
+  - name: message
+    type: string
+    default: "Hello SCIO"
+    description: Test message
+
+agents:
+  - id: transformer_agent
+    type: transformer
+    name: Transformer Agent
+    description: Transforms input data
+    config:
+      uppercase: true
+
+steps:
+  - id: transform_step
+    type: agent
+    agent: transformer_agent
+    inputs:
+      data:
+        - "${message}"
+        - "Test Data"
+    outputs:
+      - transformed
+
+  - id: condition_check
+    type: condition
+    depends_on:
+      - transform_step
+    condition: "True"
+    outputs:
+      - check_passed
+
+outputs:
+  transformed: Transformed data
+  check_passed: Condition result

@@ -171,8 +171,44 @@ def run(
             return
 
         # Echte Ausführung
+        import asyncio
+        from scio.execution.engine import ExecutionEngine, ExecutionStatus
+
         console.print("[bold]Starte Ausführung...[/bold]\n")
-        console.print("[yellow]Execution Engine noch nicht vollständig implementiert[/yellow]")
+
+        engine = ExecutionEngine()
+
+        def on_step_complete(step_result):
+            """Callback für Step-Fortschritt."""
+            status_icon = OK if step_result.status == ExecutionStatus.COMPLETED else (
+                WARN if step_result.status == ExecutionStatus.SKIPPED else FAIL
+            )
+            duration = f" ({step_result.duration_ms}ms)" if step_result.duration_ms else ""
+            console.print(f"  {status_icon} {step_result.step_id}{duration}")
+
+        async def run_experiment():
+            return await engine.execute(
+                experiment,
+                parameters=parameters,
+                on_step_complete=on_step_complete,
+            )
+
+        result = asyncio.run(run_experiment())
+
+        # Zeige Ergebnis
+        console.print()
+        if result.status == ExecutionStatus.COMPLETED:
+            console.print(f"{OK} [green bold]Experiment erfolgreich abgeschlossen[/green bold]")
+            console.print(f"   Dauer: {result.duration_ms}ms")
+            console.print(f"   Steps: {len(result.step_results)}")
+        elif result.status == ExecutionStatus.FAILED:
+            console.print(f"{FAIL} [red bold]Experiment fehlgeschlagen[/red bold]")
+            if "error" in result.metadata:
+                console.print(f"   Fehler: {result.metadata['error']}")
+            if "failed_step" in result.metadata:
+                console.print(f"   Fehlgeschlagener Step: {result.metadata['failed_step']}")
+        else:
+            console.print(f"{WARN} Experiment Status: {result.status.value}")
 
     except Exception as e:
         console.print(f"\n[red bold]Fehler:[/red bold] {e}\n")

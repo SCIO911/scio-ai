@@ -37,7 +37,7 @@ parameters:
 # Agenten-Definitionen
 agents:
   - id: data_loader
-    type: file_reader
+    type: data_loader
     name: Datenlade-Agent
     description: Lädt und validiert Eingabedaten
     config:
@@ -45,7 +45,7 @@ agents:
       encoding: utf-8
 
   - id: analyzer
-    type: statistics
+    type: analyzer
     name: Analyse-Agent
     description: Führt statistische Analysen durch
     config:
@@ -56,7 +56,7 @@ agents:
         - correlation
 
   - id: reporter
-    type: report_generator
+    type: reporter
     name: Report-Agent
     description: Generiert den Abschlussbericht
 
