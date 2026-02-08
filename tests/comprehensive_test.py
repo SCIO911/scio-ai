@@ -1204,6 +1204,10 @@ def test_api():
     try:
         from fastapi.testclient import TestClient
         from scio.api.app import app
+        from scio.tools.registry import ToolRegistry
+
+        # Re-register builtins (may have been cleared by earlier tests)
+        ToolRegistry.register_builtins()
 
         client = TestClient(app)
 

@@ -11,13 +11,13 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from scio import __version__
-from scio.agents.registry import AgentRegistry
+from scio.agents import AgentRegistry  # Import from main module to trigger registration
 from scio.core.config import get_config
 from scio.core.logging import get_logger
 from scio.execution.engine import ExecutionEngine, ExecutionResult
 from scio.parser import parse_experiment, validate_experiment
 from scio.parser.schema import ExperimentSchema
-from scio.tools.registry import ToolRegistry
+from scio.tools import ToolRegistry  # Import from main module to trigger registration
 
 logger = get_logger(__name__)
 router = APIRouter()

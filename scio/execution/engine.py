@@ -338,11 +338,8 @@ class ExecutionEngine:
         self, experiment: ExperimentSchema, context: ExecutionContext
     ) -> None:
         """Erstellt Agent-Instanzen aus dem Experiment."""
-        from scio.agents.registry import AgentRegistry
+        from scio.agents import AgentRegistry  # Triggers builtin registration
         from scio.agents.base import AgentContext
-
-        # Import builtins
-        import scio.agents.builtin  # noqa
 
         for agent_def in experiment.agents:
             try:
@@ -506,10 +503,7 @@ class ExecutionEngine:
         experiment: ExperimentSchema,
     ) -> dict[str, Any]:
         """Handler für Tool-Steps."""
-        from scio.tools.registry import ToolRegistry
-
-        # Import builtins
-        import scio.tools.builtin  # noqa
+        from scio.tools import ToolRegistry  # Triggers builtin registration
 
         tool_name = step.tool
         if not tool_name:

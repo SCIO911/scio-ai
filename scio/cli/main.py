@@ -313,10 +313,7 @@ def serve(
 @app.command()
 def agents() -> None:
     """Listet alle registrierten Agenten."""
-    # Importiere Builtins
-    import scio.agents.builtin  # noqa
-
-    from scio.agents.registry import AgentRegistry
+    from scio.agents import AgentRegistry  # Triggers builtin registration
 
     table = Table(title="Registrierte Agenten")
     table.add_column("Typ", style="cyan")
@@ -337,10 +334,7 @@ def agents() -> None:
 @app.command()
 def tools() -> None:
     """Listet alle registrierten Tools."""
-    # Importiere Builtins
-    import scio.tools.builtin  # noqa
-
-    from scio.tools.registry import ToolRegistry
+    from scio.tools import ToolRegistry  # Triggers builtin registration
 
     table = Table(title="Registrierte Tools")
     table.add_column("Name", style="cyan")

@@ -105,6 +105,25 @@ class ToolRegistry:
         """Löscht alle Registrierungen (für Tests)."""
         cls._tools.clear()
 
+    @classmethod
+    def register_builtins(cls) -> None:
+        """Registriert alle Builtin-Tools neu."""
+        import importlib
+        # Reload each submodule first
+        import scio.tools.builtin.file_tools as file_tools
+        import scio.tools.builtin.http_tools as http_tools
+        import scio.tools.builtin.python_executor as python_executor
+        import scio.tools.builtin.shell_tools as shell_tools
+        import scio.tools.builtin.math_tools as math_tools
+        importlib.reload(file_tools)
+        importlib.reload(http_tools)
+        importlib.reload(python_executor)
+        importlib.reload(shell_tools)
+        importlib.reload(math_tools)
+        # Then reload the main module
+        import scio.tools.builtin as builtin_module
+        importlib.reload(builtin_module)
+
 
 def register_tool(tool_name: str):
     """
