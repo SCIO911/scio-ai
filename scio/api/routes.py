@@ -267,3 +267,162 @@ async def execute_tool(tool_name: str, input_data: dict[str, Any]) -> dict[str, 
     except Exception as e:
         logger.error("Tool execution error", tool=tool_name, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- History & Results ---
+
+
+@router.get("/results", tags=["Results"])
+async def list_results(
+    experiment_name: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Listet Ausführungsergebnisse."""
+    from scio.persistence.store import ResultStore
+
+    store = ResultStore()
+    return store.list(
+        experiment_name=experiment_name,
+        status=status,
+        limit=limit,
+    )
+
+
+@router.get("/results/{execution_id}", tags=["Results"])
+async def get_result(execution_id: str) -> dict[str, Any]:
+    """Gibt ein Ausführungsergebnis zurück."""
+    from scio.persistence.store import ResultStore
+
+    store = ResultStore()
+    result = store.load(execution_id)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    return result
+
+
+@router.get("/results/{execution_id}/steps", tags=["Results"])
+async def get_result_steps(execution_id: str) -> list[dict[str, Any]]:
+    """Gibt die Step-Ergebnisse einer Ausführung zurück."""
+    from scio.persistence.store import ResultStore
+
+    store = ResultStore()
+    return store.get_step_results(execution_id)
+
+
+@router.get("/statistics", tags=["Results"])
+async def get_statistics(experiment_name: Optional[str] = None) -> dict[str, Any]:
+    """Gibt Ausführungsstatistiken zurück."""
+    from scio.persistence.store import ResultStore
+
+    store = ResultStore()
+    return store.get_statistics(experiment_name=experiment_name)
+
+
+# --- Checkpoints ---
+
+
+@router.get("/checkpoints", tags=["Checkpoints"])
+async def list_checkpoints(
+    execution_id: Optional[str] = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Listet Checkpoints."""
+    from scio.execution.checkpoint import CheckpointManager
+
+    mgr = CheckpointManager()
+    checkpoints = mgr.list_checkpoints(execution_id=execution_id, limit=limit)
+
+    return [ckpt.to_dict() for ckpt in checkpoints]
+
+
+@router.get("/checkpoints/resumable", tags=["Checkpoints"])
+async def get_resumable() -> list[dict[str, Any]]:
+    """Listet fortsetzbare Ausführungen."""
+    from scio.execution.checkpoint import CheckpointManager
+
+    mgr = CheckpointManager()
+    return mgr.get_resumable_executions()
+
+
+@router.get("/checkpoints/{checkpoint_id}", tags=["Checkpoints"])
+async def get_checkpoint(checkpoint_id: str) -> dict[str, Any]:
+    """Gibt einen Checkpoint zurück."""
+    from scio.execution.checkpoint import CheckpointManager
+
+    mgr = CheckpointManager()
+    checkpoint = mgr.get_checkpoint(checkpoint_id)
+
+    if not checkpoint:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+
+    return checkpoint.to_dict()
+
+
+@router.delete("/checkpoints/{checkpoint_id}", tags=["Checkpoints"])
+async def delete_checkpoint(checkpoint_id: str) -> dict[str, str]:
+    """Löscht einen Checkpoint."""
+    from scio.execution.checkpoint import CheckpointManager
+
+    mgr = CheckpointManager()
+
+    if mgr.delete_checkpoint(checkpoint_id):
+        return {"status": "deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+
+
+# --- Stored Experiments ---
+
+
+@router.get("/stored-experiments", tags=["Experiments"])
+async def list_stored_experiments(
+    name_filter: Optional[str] = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Listet gespeicherte Experimente."""
+    from scio.persistence.store import ExperimentStore
+
+    store = ExperimentStore()
+    return store.list(name_filter=name_filter, limit=limit)
+
+
+@router.get("/stored-experiments/{experiment_id}", tags=["Experiments"])
+async def get_stored_experiment(experiment_id: str) -> dict[str, Any]:
+    """Gibt ein gespeichertes Experiment zurück."""
+    from scio.persistence.store import ExperimentStore
+
+    store = ExperimentStore()
+    experiment = store.load(experiment_id)
+
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    return experiment.model_dump()
+
+
+@router.post("/stored-experiments", tags=["Experiments"])
+async def save_experiment(request: ExperimentRequest) -> dict[str, str]:
+    """Speichert ein Experiment."""
+    from scio.persistence.store import ExperimentStore
+
+    store = ExperimentStore()
+    experiment = ExperimentSchema(**request.experiment)
+    exp_id = store.save(experiment)
+
+    return {"experiment_id": exp_id, "status": "saved"}
+
+
+@router.delete("/stored-experiments/{experiment_id}", tags=["Experiments"])
+async def delete_stored_experiment(experiment_id: str) -> dict[str, str]:
+    """Löscht ein gespeichertes Experiment."""
+    from scio.persistence.store import ExperimentStore
+
+    store = ExperimentStore()
+
+    if store.delete(experiment_id):
+        return {"status": "deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Experiment not found")
