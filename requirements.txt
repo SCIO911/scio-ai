@@ -1,0 +1,48 @@
+# ═══════════════════════════════════════════════════════════════
+# SCIO AI-WORKSTATION - Dependencies
+# Service Computer Intelligence Organization
+#
+# Installation: C:\SCIO\venv\Scripts\pip install -r requirements.txt
+# Alle Pakete werden in C:\SCIO\venv installiert
+# ═══════════════════════════════════════════════════════════════
+
+# Core Framework
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.6
+python-dotenv>=1.0.0
+
+# Payment Processing
+stripe>=7.0.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# System Monitoring
+psutil>=5.9.0
+# GPU-Monitoring via nvidia-smi (kein pynvml wegen RTX 5090 Kompatibilitaet)
+
+# HTTP Clients
+requests>=2.31.0
+httpx>=0.26.0
+
+# ═══════════════════════════════════════════════════════════════
+# AI/ML Pakete (Optional - fuer GPU-Features)
+# ═══════════════════════════════════════════════════════════════
+
+# PyTorch mit CUDA (separat installieren):
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# Hugging Face Ecosystem
+transformers>=4.36.0
+accelerate>=0.25.0
+safetensors>=0.4.0
+sentencepiece>=0.1.99
+
+# Image Generation
+diffusers>=0.25.0
+
+# Utilities
+numpy>=1.24.0
+pillow>=10.0.0
+tqdm>=4.66.0

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wmic cpu get name,numberofcores,numberoflogicalprocessors /format:csv)",
+      "Bash(findstr:*)",
+      "Bash(wmic memorychip:*)",
+      "Bash(wmic diskdrive get size,model /format:csv)",
+      "Bash(powershell.exe -Command \"Get-WmiObject Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List\")",
+      "Bash(powershell.exe -Command \"\\(Get-WmiObject Win32_PhysicalMemory | Measure-Object Capacity -Sum\\).Sum / 1GB\")",
+      "Bash(powershell.exe -Command \"Get-WmiObject Win32_DiskDrive | Select-Object Model, @{N=''SizeGB'';E={[math]::Round\\($_.Size/1GB\\)}} | Format-Table\")",
+      "Bash(powershell.exe:*)",
+      "Bash(grep:*)",
+      "Bash(cmd.exe /c \"move C:\\\\ViewFinder C:\\\\SCIO\")",
+      "Bash(powershell -Command \"Move-Item -Path ''C:\\\\ViewFinder'' -Destination ''C:\\\\SCIO'' -Force; if\\(Test-Path ''C:\\\\SCIO''\\) { Write-Host ''Erfolgreich: C:\\\\SCIO erstellt'' } else { Write-Host ''Fehler beim Verschieben'' }\")",
+      "Bash(powershell -Command \"Copy-Item -Path ''C:\\\\ViewFinder\\\\*'' -Destination ''C:\\\\SCIO'' -Recurse -Force; if\\(Test-Path ''C:\\\\SCIO\\\\start.py''\\) { Write-Host ''Erfolgreich nach C:\\\\SCIO kopiert!'' } else { Write-Host ''Fehler'' }\")"
+    ]
+  }
+}
