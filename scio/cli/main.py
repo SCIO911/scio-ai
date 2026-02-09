@@ -178,7 +178,7 @@ def run(
 
         engine = ExecutionEngine()
 
-        def on_step_complete(step_result):
+        def on_step_complete(step_result: "StepResult") -> None:
             """Callback für Step-Fortschritt."""
             status_icon = OK if step_result.status == ExecutionStatus.COMPLETED else (
                 WARN if step_result.status == ExecutionStatus.SKIPPED else FAIL
@@ -247,7 +247,7 @@ def init(
         Path("."),
         "--output",
         "-o",
-        help="Ausgabeverzeichnis",
+        help="Ausgabeverzeichnis oder Dateipfad (.yaml)",
     ),
 ) -> None:
     """Erstellt ein neues Experiment-Template."""
@@ -289,7 +289,14 @@ outputs:
   result: Ergebnis des Experiments
 '''
 
-    output_file = output / f"{name}.yaml"
+    # Handle both file path and directory
+    if output.suffix in (".yaml", ".yml"):
+        output_file = output
+    else:
+        output_file = output / f"{name}.yaml"
+
+    # Ensure parent directory exists
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.write_text(template, encoding="utf-8")
 
     console.print(f"\n{OK} Experiment erstellt: {output_file}\n")
@@ -602,7 +609,7 @@ def resume(
         experiment = parse_experiment(experiment_file)
         engine = ExecutionEngine()
 
-        def on_step_complete(step_result):
+        def on_step_complete(step_result: "StepResult") -> None:
             status_icon = OK if step_result.status == ExecutionStatus.COMPLETED else (
                 WARN if step_result.status == ExecutionStatus.SKIPPED else FAIL
             )
