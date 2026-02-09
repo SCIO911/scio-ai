@@ -110,18 +110,34 @@ class AgentRegistry:
         import scio.agents.builtin.llm_agent as llm_agent
         import scio.agents.builtin.transformer as transformer
         import scio.agents.builtin.python_expert as python_expert
+        import scio.agents.builtin.database_agent as database_agent
+        import scio.agents.builtin.api_agent as api_agent
         importlib.reload(data_loader)
         importlib.reload(analyzer)
         importlib.reload(reporter)
         importlib.reload(llm_agent)
         importlib.reload(transformer)
         importlib.reload(python_expert)
+        importlib.reload(database_agent)
+        importlib.reload(api_agent)
         # Then reload the main module
         import scio.agents.builtin as builtin_module
         importlib.reload(builtin_module)
 
+    @classmethod
+    def list_agents(cls) -> list[dict[str, str]]:
+        """Gibt alle registrierten Agenten mit Metadaten zurueck."""
+        agents = []
+        for agent_type, agent_class in cls._agents.items():
+            agents.append({
+                "type": agent_type,
+                "version": getattr(agent_class, "version", "1.0"),
+                "class": agent_class.__name__,
+            })
+        return agents
 
-def register_agent(agent_type: str):
+
+def register_agent(agent_type: str) -> "Callable[[Type[Agent]], Type[Agent]]":
     """
     Decorator zum Registrieren von Agenten.
 
@@ -130,6 +146,7 @@ def register_agent(agent_type: str):
         class DataLoaderAgent(Agent):
             ...
     """
+    from typing import Callable
 
     def decorator(cls: Type[Agent]) -> Type[Agent]:
         cls.agent_type = agent_type
