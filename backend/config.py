@@ -161,9 +161,11 @@ class Config:
         },
     }
 
-    # Vast.ai Integration
+    # Vast.ai Integration - NUR HOSTING (Vermieten)
+    # SICHERHEITSSPERRE: SCIO vermietet nur GPUs, mietet keine!
     VASTAI_API_KEY = os.getenv('VASTAI_API_KEY')
     VASTAI_ENABLED = os.getenv('VASTAI_ENABLED', 'false').lower() == 'true'
+    VASTAI_HOST_ONLY = True  # NIEMALS ändern! Nur vermieten, nie mieten!
     VASTAI_MIN_PRICE = float(os.getenv('VASTAI_MIN_PRICE', 0.30))
     VASTAI_MAX_PRICE = float(os.getenv('VASTAI_MAX_PRICE', 0.80))
 

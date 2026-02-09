@@ -51,16 +51,30 @@ class VastInstance:
 
 class VastAIIntegration:
     """
-    Vast.ai Integration
+    Vast.ai Integration - NUR HOSTING/VERMIETEN
+
+    ============================================================
+    SICHERHEITSSPERRE: Diese Integration ist NUR für das
+    VERMIETEN eigener GPU-Ressourcen konfiguriert.
+    Das MIETEN fremder GPUs ist DEAKTIVIERT und BLOCKIERT.
+    ============================================================
 
     Features:
-    - Maschinen-Registrierung
+    - Maschinen-Registrierung (eigene GPUs vermieten)
     - Automatisches Pricing
     - Earnings-Tracking
     - Health-Monitoring
+
+    NICHT unterstützt (absichtlich blockiert):
+    - Mieten von fremden GPUs
+    - Erstellen von Instanzen auf fremden Maschinen
+    - Ausgaben für GPU-Miete
     """
 
     API_BASE = "https://console.vast.ai/api/v0"
+
+    # SICHERHEITSSPERRE: Nur Hosting erlaubt, kein Mieten!
+    HOST_ONLY_MODE = True  # NIEMALS auf False setzen!
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or Config.VASTAI_API_KEY
@@ -72,8 +86,13 @@ class VastAIIntegration:
         self._total_earnings = 0.0
         self._callbacks: List = []
 
+        # Sicherheitssperre für Host-Only Modus
+        self._host_only = True  # IMMER True - GPUs nur vermieten, nie mieten!
+
         if not self._enabled:
             print("[WARN]  Vast.ai Integration deaktiviert")
+        else:
+            print("[LOCK] Vast.ai: HOST-ONLY Modus aktiv (Mieten blockiert)")
 
     def _request(self, method: str, endpoint: str, data: dict = None) -> dict:
         """Macht API-Request"""
@@ -324,10 +343,70 @@ class VastAIIntegration:
         return {
             'enabled': self._enabled,
             'running': self._running,
+            'host_only': self._host_only,
             'machines': len(self._machines),
             'active_instances': len([i for i in self._instances.values() if i.status == 'running']),
             'total_earnings_usd': self._total_earnings,
         }
+
+    # ================================================================
+    # BLOCKIERTE METHODEN - Mieten ist NICHT erlaubt!
+    # ================================================================
+
+    def rent_gpu(self, *args, **kwargs):
+        """
+        BLOCKIERT: GPU mieten ist nicht erlaubt!
+        SCIO vermietet nur eigene GPUs, mietet keine fremden.
+        """
+        raise PermissionError(
+            "SICHERHEITSSPERRE: GPU-Mieten ist deaktiviert! "
+            "SCIO ist nur für das VERMIETEN eigener GPUs konfiguriert."
+        )
+
+    def create_instance(self, *args, **kwargs):
+        """
+        BLOCKIERT: Instanz erstellen (auf fremder GPU) ist nicht erlaubt!
+        """
+        raise PermissionError(
+            "SICHERHEITSSPERRE: Instanz-Erstellung blockiert! "
+            "SCIO mietet keine fremden GPUs."
+        )
+
+    def launch_instance(self, *args, **kwargs):
+        """
+        BLOCKIERT: Instanz starten (auf fremder GPU) ist nicht erlaubt!
+        """
+        raise PermissionError(
+            "SICHERHEITSSPERRE: Instanz-Start blockiert! "
+            "SCIO mietet keine fremden GPUs."
+        )
+
+    def search_offers(self, *args, **kwargs):
+        """
+        BLOCKIERT: Nach GPU-Angeboten suchen ist nicht erlaubt!
+        """
+        raise PermissionError(
+            "SICHERHEITSSPERRE: Angebotssuche blockiert! "
+            "SCIO mietet keine fremden GPUs."
+        )
+
+    def get_available_gpus(self, *args, **kwargs):
+        """
+        BLOCKIERT: Verfügbare GPUs zum Mieten suchen ist nicht erlaubt!
+        """
+        raise PermissionError(
+            "SICHERHEITSSPERRE: GPU-Suche blockiert! "
+            "SCIO mietet keine fremden GPUs."
+        )
+
+    def bid_on_machine(self, *args, **kwargs):
+        """
+        BLOCKIERT: Auf Maschine bieten ist nicht erlaubt!
+        """
+        raise PermissionError(
+            "SICHERHEITSSPERRE: Bieten blockiert! "
+            "SCIO mietet keine fremden GPUs."
+        )
 
 
 # Singleton Instance
