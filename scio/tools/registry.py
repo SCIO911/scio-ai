@@ -124,8 +124,50 @@ class ToolRegistry:
         import scio.tools.builtin as builtin_module
         importlib.reload(builtin_module)
 
+    @classmethod
+    def register_ultimate_tools(cls) -> int:
+        """Registriert alle Ultimate Tools (500+)."""
+        try:
+            from scio.tools.builtin.ultimate_tools import UltimateToolFactory
+            return UltimateToolFactory.register_all_tools()
+        except Exception as e:
+            logger.warning(f"Failed to register ultimate tools: {e}")
+            return 0
 
-def register_tool(tool_name: str):
+    @classmethod
+    def get_total_tool_count(cls) -> int:
+        """Gibt die Gesamtzahl der registrierten Tools zurück."""
+        return len(cls._tools)
+
+    @classmethod
+    def search_tools(cls, query: str) -> list[dict[str, Any]]:
+        """Sucht nach Tools anhand eines Suchbegriffs."""
+        results = []
+        query_lower = query.lower()
+        for name in cls._tools:
+            if query_lower in name.lower():
+                tool = cls.create(name)
+                results.append({
+                    "name": name,
+                    "schema": tool.get_schema(),
+                })
+        return results
+
+    @classmethod
+    def list_tools_by_category(cls) -> dict[str, list[str]]:
+        """Gruppiert Tools nach Kategorie."""
+        categories: dict[str, list[str]] = {}
+        for name in cls._tools:
+            # Kategorie aus Name ableiten
+            parts = name.split("_")
+            category = parts[0] if parts else "other"
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(name)
+        return categories
+
+
+def register_tool(tool_name: str) -> "Callable[[Type[Tool]], Type[Tool]]":
     """
     Decorator zum Registrieren von Tools.
 
@@ -134,6 +176,7 @@ def register_tool(tool_name: str):
         class FileReaderTool(Tool):
             ...
     """
+    from typing import Callable
 
     def decorator(cls: Type[Tool]) -> Type[Tool]:
         cls.tool_name = tool_name
