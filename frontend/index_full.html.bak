@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCIO - Service Computer Intelligence Organization</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 700px;
+            margin: 50px auto;
+            background: rgba(30, 41, 59, 0.95);
+            border-radius: 24px;
+            padding: 50px;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.5), 0 0 40px rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .logo h1 {
+            font-size: 56px;
+            background: linear-gradient(135deg, #3b82f6 0%, #a855f7 50%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            letter-spacing: 8px;
+        }
+        .tagline {
+            color: #94a3b8;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+        }
+        .subtitle {
+            color: #64748b;
+            font-size: 18px;
+            margin-top: 15px;
+        }
+        .features {
+            background: rgba(15, 23, 42, 0.6);
+            padding: 25px;
+            border-radius: 16px;
+            margin-bottom: 35px;
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+        .feature {
+            margin: 12px 0;
+            padding-left: 35px;
+            position: relative;
+            color: #e2e8f0;
+        }
+        .feature:before {
+            content: ">";
+            position: absolute;
+            left: 0;
+            color: #3b82f6;
+            font-weight: bold;
+            font-size: 18px;
+            font-family: monospace;
+        }
+        .form-group { margin-bottom: 25px; }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+        select, input[type="email"], input[type="file"] {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+            border: 2px solid #334155;
+            border-radius: 12px;
+            background: #0f172a;
+            color: #e2e8f0;
+            transition: all 0.3s;
+        }
+        select:focus, input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        #card-element {
+            padding: 14px;
+            border: 2px solid #334155;
+            border-radius: 12px;
+            background: #0f172a;
+        }
+        .price {
+            font-size: 32px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #22c55e 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-top: 12px;
+        }
+        button {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #3b82f6 0%, #a855f7 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(59, 130, 246, 0.4);
+        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .message { padding: 16px; border-radius: 12px; margin-top: 20px; display: none; }
+        .error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .success { background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #64748b;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>SCIO</h1>
+            <div class="tagline">Service Computer Intelligence Organization</div>
+            <div class="subtitle">AI Training & Inference Platform</div>
+        </div>
+
+        <div class="features">
+            <div class="feature">RTX 5090 24GB - Maximum Performance</div>
+            <div class="feature">Automatische Qualitätskontrolle</div>
+            <div class="feature">100% Datenschutz - On-Premise Processing</div>
+            <div class="feature">Vollautomatischer Betrieb</div>
+        </div>
+
+        <form id="form">
+            <div class="form-group">
+                <label>// MODEL AUSWÄHLEN</label>
+                <select id="model" required>
+                    <option value="">-- Bitte wählen --</option>
+                    <option value="llama-7b">LLaMA 7B - Schnell & Effizient</option>
+                    <option value="llama-13b">LLaMA 13B - Ausgewogen</option>
+                    <option value="llama-70b">LLaMA 70B - Premium-Qualität</option>
+                </select>
+                <div class="price" id="price"></div>
+            </div>
+
+            <div class="form-group">
+                <label>// EMAIL-ADRESSE</label>
+                <input type="email" id="email" required placeholder="user@domain.com">
+                <small style="color: #64748b;">Für Bestätigung & Ergebnis-Zustellung</small>
+            </div>
+
+            <div class="form-group">
+                <label>// TRAINING-DATASET</label>
+                <input type="file" id="dataset" accept=".csv,.json,.jsonl" required>
+                <small style="color: #64748b;">Format: CSV, JSON oder JSONL</small>
+            </div>
+
+            <div class="form-group">
+                <label>// ZAHLUNGSINFORMATIONEN</label>
+                <div id="card-element"></div>
+            </div>
+
+            <div id="error" class="message error"></div>
+            <div id="success" class="message success"></div>
+
+            <button type="submit" id="submit">
+                INITIALISIEREN
+            </button>
+        </form>
+
+        <div class="footer">
+            SCIO AI-Workstation | Secure Payment via Stripe
+        </div>
+    </div>
+
+    <script>
+        let stripe, cardElement, prices;
+
+        fetch('/api/config')
+            .then(r => r.json())
+            .then(config => {
+                stripe = Stripe(config.stripe_key);
+                prices = config.prices;
+
+                const elements = stripe.elements();
+                cardElement = elements.create('card', {
+                    style: {
+                        base: {
+                            fontSize: '16px',
+                            color: '#e2e8f0',
+                            '::placeholder': { color: '#64748b' }
+                        }
+                    }
+                });
+                cardElement.mount('#card-element');
+            });
+
+        document.getElementById('model').addEventListener('change', (e) => {
+            const model = e.target.value;
+            document.getElementById('price').textContent =
+                model ? `> ${prices[model].display}` : '';
+        });
+
+        document.getElementById('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const btn = document.getElementById('submit');
+            const model = document.getElementById('model').value;
+            const email = document.getElementById('email').value;
+            const file = document.getElementById('dataset').files[0];
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> PROCESSING...';
+
+            try {
+                const res = await fetch('/api/create-payment-intent', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model_size: model, email: email})
+                });
+
+                if (!res.ok) throw new Error('Server-Fehler');
+
+                const {clientSecret, order_id} = await res.json();
+
+                const {error} = await stripe.confirmPayment({
+                    clientSecret: clientSecret,
+                    confirmParams: {
+                        payment_method_data: {
+                            billing_details: {email: email}
+                        },
+                        return_url: window.location.origin + '/payment-success?order_id=' + order_id
+                    },
+                    redirect: 'if_required'
+                });
+
+                if (error) {
+                    document.getElementById('error').textContent = error.message;
+                    document.getElementById('error').style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerHTML = 'INITIALISIEREN';
+                    return;
+                }
+
+                btn.innerHTML = '<span class="spinner"></span> UPLOADING...';
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('order_id', order_id);
+                await fetch('/api/upload-dataset', {method: 'POST', body: formData});
+
+                document.getElementById('success').innerHTML =
+                    `<strong>> TRANSAKTION ERFOLGREICH</strong><br><br>
+                     Order-ID: <code style="background:#0f172a;padding:4px 8px;border-radius:4px;color:#3b82f6;">${order_id}</code><br><br>
+                     Training startet automatisch.<br>
+                     Benachrichtigung erfolgt per Email.`;
+                document.getElementById('success').style.display = 'block';
+                document.getElementById('form').style.display = 'none';
+
+            } catch (err) {
+                document.getElementById('error').textContent = 'ERROR: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+                btn.disabled = false;
+                btn.innerHTML = 'INITIALISIEREN';
+            }
+        });
+    </script>
+</body>
+</html>

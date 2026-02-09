@@ -52,6 +52,9 @@ from backend.routes.openapi import openapi_bp
 from backend.routes.config_api import config_api_bp
 from backend.routes.public_api import public_api_bp
 from backend.routes.soul import soul_bp
+from backend.routes.marketplace import marketplace_bp
+from backend.routes.security import security_bp
+from backend.security import get_fortress, fortress_middleware
 
 # Load .env
 load_dotenv(Config.BASE_DIR / '.env')
@@ -428,6 +431,63 @@ app.register_blueprint(openapi_bp)  # OpenAPI/Swagger Documentation
 app.register_blueprint(config_api_bp)  # Runtime Configuration API
 app.register_blueprint(public_api_bp)  # Public Paid API
 app.register_blueprint(soul_bp)  # SCIO Soul - Lebendiges Bewusstsein
+app.register_blueprint(marketplace_bp, url_prefix='/api/marketplace')  # Job Marketplace - Auto Job Akquise
+app.register_blueprint(security_bp, url_prefix='/api/security')  # SCIO Fortress - Cyber Defense
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCIO FORTRESS - UNÜBERWINDBARE CYBER-VERTEIDIGUNG
+# ═══════════════════════════════════════════════════════════════════════════════
+fortress = get_fortress()
+
+@app.before_request
+def fortress_inspection():
+    """SCIO Fortress - Request Inspection"""
+    # Skip für statische Dateien
+    if request.path.startswith('/static/') or request.path.endswith(('.js', '.css', '.png', '.jpg', '.ico')):
+        return None
+
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+
+    method = request.method
+    path = request.path
+    headers = dict(request.headers)
+    query_params = request.args.to_dict()
+
+    try:
+        body = request.get_data(as_text=True) if request.data else None
+    except:
+        body = None
+
+    cookies = request.cookies.to_dict() if request.cookies else {}
+
+    allowed, reason = fortress.inspect_request(
+        ip=ip or "unknown",
+        method=method,
+        path=path,
+        headers=headers,
+        query_params=query_params,
+        body=body,
+        cookies=cookies
+    )
+
+    if not allowed:
+        return jsonify({
+            'error': 'Access Denied',
+            'reason': reason,
+            'code': 'FORTRESS_BLOCK'
+        }), 403
+
+@app.after_request
+def add_security_headers(response):
+    """Fügt Security Headers hinzu"""
+    for header, value in fortress.get_security_headers().items():
+        # Überschreibe nicht existierende CSP wenn schon gesetzt
+        if header == 'Content-Security-Policy' and response.headers.get(header):
+            continue
+        response.headers[header] = value
+    return response
 
 
 # ===================================================================
@@ -518,10 +578,16 @@ def create_payment():
 
         print(f"[INFO] Creating Payment Intent: {order_id} ({amount/100:.2f}€)")
 
+        # Basis-URL für Weiterleitungen nach Zahlung
+        base_url = request.host_url.rstrip('/')
+
         intent = stripe.PaymentIntent.create(
             amount=amount,
             currency='eur',
-            automatic_payment_methods={'enabled': True},
+            automatic_payment_methods={
+                'enabled': True,
+                'allow_redirects': 'always'
+            },
             metadata={
                 'order_id': order_id,
                 'model_size': model_size,
@@ -609,6 +675,74 @@ def upload_dataset():
     except Exception as e:
         print(f"[ERROR] Upload Error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/payment-success')
+def payment_success():
+    """Redirect nach erfolgreicher Stripe-Zahlung (für redirect-basierte Zahlungsmethoden)"""
+    order_id = request.args.get('order_id')
+    payment_intent = request.args.get('payment_intent')
+    payment_intent_client_secret = request.args.get('payment_intent_client_secret')
+    redirect_status = request.args.get('redirect_status')
+
+    print(f"[PAYMENT] Redirect empfangen: order={order_id}, status={redirect_status}")
+
+    # Bei erfolgreicher Zahlung zur Erfolgsseite weiterleiten
+    if redirect_status == 'succeeded':
+        return f'''
+        <!DOCTYPE html>
+        <html lang="de">
+        <head>
+            <meta charset="UTF-8">
+            <title>Zahlung erfolgreich - SCIO AI</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; background: #0a0a0f; color: #e0e0e0;
+                       display: flex; justify-content: center; align-items: center;
+                       min-height: 100vh; margin: 0; }}
+                .success {{ text-align: center; padding: 40px; background: rgba(15,15,25,0.9);
+                           border: 1px solid #00f0ff; border-radius: 10px; max-width: 500px; }}
+                h1 {{ color: #00f0ff; }}
+                .order-id {{ background: #0f172a; padding: 10px 20px; border-radius: 5px;
+                            font-family: monospace; color: #3b82f6; margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="success">
+                <h1>✓ Zahlung erfolgreich!</h1>
+                <p>Ihre Bestellung wurde erfolgreich bezahlt.</p>
+                <div class="order-id">Order-ID: {order_id or "N/A"}</div>
+                <p>Sie erhalten eine Bestätigung per E-Mail.</p>
+                <p><a href="/" style="color: #00f0ff;">Zurück zur Startseite</a></p>
+            </div>
+        </body>
+        </html>
+        '''
+    else:
+        return f'''
+        <!DOCTYPE html>
+        <html lang="de">
+        <head>
+            <meta charset="UTF-8">
+            <title>Zahlung fehlgeschlagen - SCIO AI</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; background: #0a0a0f; color: #e0e0e0;
+                       display: flex; justify-content: center; align-items: center;
+                       min-height: 100vh; margin: 0; }}
+                .error {{ text-align: center; padding: 40px; background: rgba(15,15,25,0.9);
+                         border: 1px solid #ff006e; border-radius: 10px; max-width: 500px; }}
+                h1 {{ color: #ff006e; }}
+            </style>
+        </head>
+        <body>
+            <div class="error">
+                <h1>✗ Zahlung fehlgeschlagen</h1>
+                <p>Die Zahlung konnte nicht abgeschlossen werden.</p>
+                <p>Status: {redirect_status or "unbekannt"}</p>
+                <p><a href="/" style="color: #00f0ff;">Erneut versuchen</a></p>
+            </div>
+        </body>
+        </html>
+        '''
 
 
 @app.route('/api/webhook/stripe', methods=['POST'])
