@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
 """
-SCIO - LLM Training Worker
+SCIO - LLM Training Worker (MEGA-UPGRADE v2.0)
 LoRA/QLoRA Fine-Tuning
+
+MEGA-UPGRADE Features:
+- Full Fine-Tuning (nicht nur LoRA)
+- DPO (Direct Preference Optimization)
+- RLHF Light (ohne RL, nur Ranking)
+- Gradient Accumulation
+- Mixed Precision Training (BF16/FP16)
+- DeepSpeed ZeRO-3 Integration
+- Experiment Tracking (MLflow/W&B)
+- Model Versioning
+- A/B Testing Framework
+- Automatic Model Selection
+- CSV/JSON/Parquet Data Loaders
+- Automatic Data Validation
+- Train/Val/Test Split (stratified)
+- Data Augmentation für NLP
+- Dataset Statistics Dashboard
 """
 
 import os

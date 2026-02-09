@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
 """
-SCIO - Code Worker
+SCIO - Code Worker (MEGA-UPGRADE v2.0)
 Code Generation, Completion, Analysis
 Optimiert für RTX 5090 mit 24GB VRAM
+
+MEGA-UPGRADE Features:
+- Unit Test Generation (pytest, jest, etc.)
+- Documentation Generation (docstrings, JSDoc, etc.)
+- Security Analysis (Vulnerabilities)
+- Refactoring Suggestions
+- Type Hints Generation
+- Complexity Analysis
+- Multi-File Context
+- Repository-Aware Code Review
+- Linting Integration
 """
 
 import os
@@ -455,6 +466,552 @@ Fixed code:"""
     def get_available_models(self) -> dict:
         """Return available models"""
         return CODE_MODELS
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: UNIT TEST GENERATION
+    # ═══════════════════════════════════════════════════════════════
+
+    def generate_unit_tests(
+        self,
+        code: str,
+        language: str = "python",
+        framework: str = "pytest",
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Generiert Unit Tests für Code
+
+        Args:
+            code: Zu testender Code
+            language: Programmiersprache
+            framework: Test-Framework (pytest, unittest, jest, mocha, etc.)
+            model: Code-Modell
+
+        Returns:
+            dict mit tests, coverage_estimate, model, gpu_seconds
+        """
+        framework_hints = {
+            'pytest': 'Use pytest with fixtures and parametrize decorators where appropriate.',
+            'unittest': 'Use Python unittest.TestCase class with setUp/tearDown methods.',
+            'jest': 'Use Jest with describe/it blocks and expect assertions.',
+            'mocha': 'Use Mocha with Chai assertions.',
+            'rspec': 'Use RSpec with describe/context/it blocks.',
+            'junit': 'Use JUnit 5 with @Test annotations.',
+        }
+
+        hint = framework_hints.get(framework, '')
+
+        prompt = f"""Generate comprehensive unit tests for the following {language} code.
+Use the {framework} testing framework.
+{hint}
+
+Include:
+1. Test cases for normal operation
+2. Edge cases and boundary conditions
+3. Error handling tests
+4. Mock external dependencies if needed
+
+Code to test:
+```{language}
+{code}
+```
+
+Generate complete, runnable test code:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            language=language,
+            max_tokens=4096,
+            temperature=0.2,
+        )
+
+        return {
+            "tests": result["code"],
+            "framework": framework,
+            "language": language,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: DOCUMENTATION GENERATION
+    # ═══════════════════════════════════════════════════════════════
+
+    def generate_documentation(
+        self,
+        code: str,
+        style: str = "google",
+        language: str = "python",
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Generiert Dokumentation für Code
+
+        Args:
+            code: Code der dokumentiert werden soll
+            style: Dokumentationsstil (google, numpy, sphinx, jsdoc, etc.)
+            language: Programmiersprache
+            model: Code-Modell
+
+        Returns:
+            dict mit documented_code, model, gpu_seconds
+        """
+        style_hints = {
+            'google': 'Use Google-style docstrings with Args, Returns, Raises sections.',
+            'numpy': 'Use NumPy-style docstrings with Parameters, Returns, Examples sections.',
+            'sphinx': 'Use Sphinx/reST-style docstrings with :param:, :returns:, :raises: directives.',
+            'jsdoc': 'Use JSDoc comments with @param, @returns, @throws tags.',
+            'javadoc': 'Use Javadoc comments with @param, @return, @throws tags.',
+        }
+
+        hint = style_hints.get(style, '')
+
+        prompt = f"""Add comprehensive documentation to the following {language} code.
+{hint}
+
+Include:
+1. Module/class-level documentation
+2. Function/method docstrings with all parameters
+3. Type hints where applicable
+4. Usage examples where helpful
+5. Inline comments for complex logic
+
+Code:
+```{language}
+{code}
+```
+
+Return the fully documented code:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            language=language,
+            max_tokens=4096,
+            temperature=0.2,
+        )
+
+        return {
+            "documented_code": result["code"],
+            "style": style,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: SECURITY ANALYSIS
+    # ═══════════════════════════════════════════════════════════════
+
+    def analyze_security(
+        self,
+        code: str,
+        language: str = None,
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Analysiert Code auf Sicherheitslücken
+
+        Args:
+            code: Zu analysierender Code
+            language: Programmiersprache
+            model: Code-Modell
+
+        Returns:
+            dict mit vulnerabilities, severity_summary, recommendations, model, gpu_seconds
+        """
+        prompt = f"""Analyze the following code for security vulnerabilities.
+
+Check for:
+1. SQL Injection
+2. Cross-Site Scripting (XSS)
+3. Command Injection
+4. Path Traversal
+5. Insecure Deserialization
+6. Hardcoded Credentials/Secrets
+7. Improper Input Validation
+8. Insecure Cryptography
+9. Race Conditions
+10. Buffer Overflows (if applicable)
+
+For each vulnerability found, provide:
+- Type of vulnerability (OWASP category)
+- Severity (Critical/High/Medium/Low)
+- Line number(s) affected
+- Description of the issue
+- Recommended fix
+
+Code:
+```
+{code}
+```
+
+Security Analysis (JSON format):"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            max_tokens=2048,
+            temperature=0.1,
+        )
+
+        return {
+            "analysis": result["code"],
+            "language": language,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: REFACTORING SUGGESTIONS
+    # ═══════════════════════════════════════════════════════════════
+
+    def suggest_refactoring(
+        self,
+        code: str,
+        language: str = None,
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Schlägt Refactorings vor
+
+        Args:
+            code: Zu analysierender Code
+            language: Programmiersprache
+            model: Code-Modell
+
+        Returns:
+            dict mit suggestions, refactored_code, model, gpu_seconds
+        """
+        prompt = f"""Analyze the following code and suggest improvements:
+
+Consider:
+1. Code duplication (DRY principle)
+2. Function/method length
+3. Naming conventions
+4. Design patterns that could be applied
+5. SOLID principles violations
+6. Performance optimizations
+7. Readability improvements
+8. Modern language features that could be used
+
+For each suggestion:
+- Describe the issue
+- Explain the benefit of the change
+- Show the refactored code
+
+Code:
+```
+{code}
+```
+
+Refactoring Analysis:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            max_tokens=4096,
+            temperature=0.3,
+        )
+
+        return {
+            "suggestions": result["code"],
+            "language": language,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: TYPE HINTS GENERATION
+    # ═══════════════════════════════════════════════════════════════
+
+    def generate_type_hints(
+        self,
+        code: str,
+        language: str = "python",
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Fügt Type Hints zu Code hinzu
+
+        Args:
+            code: Code ohne/mit teilweisen Type Hints
+            language: Programmiersprache (python, typescript)
+            model: Code-Modell
+
+        Returns:
+            dict mit typed_code, model, gpu_seconds
+        """
+        if language == "python":
+            prompt = f"""Add comprehensive Python type hints to the following code.
+
+Include:
+1. Function parameter types
+2. Return types
+3. Variable annotations where helpful
+4. Generic types (List, Dict, Optional, etc.)
+5. TypeVar for generic functions
+6. Protocol/ABC for duck typing if needed
+
+Code:
+```python
+{code}
+```
+
+Return the code with complete type annotations:"""
+        else:
+            prompt = f"""Add TypeScript type annotations to the following code.
+
+Include interface/type definitions where needed.
+
+Code:
+```
+{code}
+```
+
+Return the fully typed code:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            language=language,
+            max_tokens=4096,
+            temperature=0.1,
+        )
+
+        return {
+            "typed_code": result["code"],
+            "language": language,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: COMPLEXITY ANALYSIS
+    # ═══════════════════════════════════════════════════════════════
+
+    def analyze_complexity(
+        self,
+        code: str,
+        language: str = None,
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Analysiert Code-Komplexität
+
+        Args:
+            code: Zu analysierender Code
+            language: Programmiersprache
+            model: Code-Modell
+
+        Returns:
+            dict mit metrics (cyclomatic complexity, etc.), model, gpu_seconds
+        """
+        prompt = f"""Analyze the complexity of the following code.
+
+Calculate/Estimate:
+1. Cyclomatic Complexity for each function
+2. Cognitive Complexity
+3. Lines of Code (LOC)
+4. Nesting Depth (max and average)
+5. Number of Parameters per function
+6. Number of Dependencies/Imports
+7. Overall Maintainability Index estimate
+
+Also identify:
+- Functions that are too complex (CC > 10)
+- Deep nesting that should be refactored
+- Long functions that should be split
+
+Code:
+```
+{code}
+```
+
+Complexity Analysis (structured format):"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            max_tokens=2048,
+            temperature=0.1,
+        )
+
+        return {
+            "analysis": result["code"],
+            "language": language,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: MULTI-FILE CONTEXT
+    # ═══════════════════════════════════════════════════════════════
+
+    def review_with_context(
+        self,
+        main_file: str,
+        context_files: List[Dict[str, str]],
+        language: str = None,
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Code Review mit Multi-File Kontext
+
+        Args:
+            main_file: Hauptdatei die reviewed werden soll
+            context_files: Liste von {'path': str, 'content': str}
+            language: Programmiersprache
+            model: Code-Modell
+
+        Returns:
+            dict mit review, model, gpu_seconds
+        """
+        # Baue Kontext auf
+        context = "## Context Files:\n\n"
+        for cf in context_files[:5]:  # Max 5 Kontext-Dateien
+            context += f"### {cf.get('path', 'unknown')}\n```\n{cf['content'][:2000]}\n```\n\n"
+
+        prompt = f"""{context}
+
+## File to Review:
+```
+{main_file}
+```
+
+Perform a thorough code review considering the context from related files.
+
+Review aspects:
+1. Correctness and bugs
+2. Consistency with codebase patterns
+3. API usage correctness
+4. Dependency handling
+5. Error handling
+6. Performance considerations
+7. Security issues
+8. Test coverage suggestions
+
+Detailed Code Review:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            max_tokens=4096,
+            temperature=0.3,
+        )
+
+        return {
+            "review": result["code"],
+            "context_files_count": len(context_files),
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    # ═══════════════════════════════════════════════════════════════
+    # MEGA-UPGRADE: LINTING INTEGRATION
+    # ═══════════════════════════════════════════════════════════════
+
+    def generate_lint_config(
+        self,
+        language: str,
+        framework: str = None,
+        style: str = "standard",
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Generiert Linting-Konfiguration
+
+        Args:
+            language: Programmiersprache (python, javascript, typescript)
+            framework: Optional Framework (react, vue, django, etc.)
+            style: Style Guide (standard, airbnb, google, etc.)
+            model: Code-Modell
+
+        Returns:
+            dict mit config_files (dict von Dateiname -> Inhalt)
+        """
+        configs = {
+            'python': ['pyproject.toml', '.ruff.toml', '.flake8'],
+            'javascript': ['.eslintrc.json', '.prettierrc'],
+            'typescript': ['.eslintrc.json', 'tsconfig.json', '.prettierrc'],
+        }
+
+        target_configs = configs.get(language, ['.editorconfig'])
+
+        prompt = f"""Generate linting and formatting configuration for a {language} project.
+
+Language: {language}
+Framework: {framework or 'None'}
+Style Guide: {style}
+
+Generate configuration files:
+{', '.join(target_configs)}
+
+For each config file, provide:
+1. The complete configuration
+2. Brief explanation of key settings
+3. Commands to run the linter
+
+Configuration:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            max_tokens=4096,
+            temperature=0.2,
+        )
+
+        return {
+            "configs": result["code"],
+            "language": language,
+            "framework": framework,
+            "style": style,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
+
+    def generate_pre_commit_hooks(
+        self,
+        languages: List[str],
+        model: str = "deepseek-coder-6.7b",
+    ) -> dict:
+        """
+        MEGA-UPGRADE: Generiert Pre-Commit Hook Konfiguration
+
+        Args:
+            languages: Liste der verwendeten Sprachen
+            model: Code-Modell
+
+        Returns:
+            dict mit config (.pre-commit-config.yaml)
+        """
+        prompt = f"""Generate a comprehensive .pre-commit-config.yaml for a project using: {', '.join(languages)}
+
+Include hooks for:
+1. Code formatting (black, prettier, etc.)
+2. Linting (ruff, eslint, etc.)
+3. Type checking (mypy, typescript)
+4. Security scanning (bandit, safety)
+5. Commit message validation
+6. Trailing whitespace
+7. Large file checks
+8. Secret detection
+
+Generate complete .pre-commit-config.yaml:"""
+
+        result = self.generate_code(
+            prompt=prompt,
+            model=model,
+            max_tokens=2048,
+            temperature=0.2,
+        )
+
+        return {
+            "config": result["code"],
+            "languages": languages,
+            "model": model,
+            "gpu_seconds": result["gpu_seconds"],
+        }
 
 
 # Singleton Instance

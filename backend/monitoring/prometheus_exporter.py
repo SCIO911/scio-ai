@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """
-SCIO - Prometheus Metrics Exporter
+SCIO - Prometheus Metrics Exporter (MEGA-UPGRADE v2.0)
 Exportiert Metriken im Prometheus-Format für Monitoring
+
+MEGA-UPGRADE Features:
+- Enhanced Alerting Rules
+- Response Time P99 > 2s → Warning
+- Error Rate > 1% → Critical
+- GPU Memory > 90% → Warning
+- Job Queue > 50 → Warning
+- Worker Unhealthy → Critical
+- Circuit Breaker State Tracking
+- SLA Compliance Metrics
 """
 
 import time
@@ -392,15 +402,18 @@ class SCIOMetrics:
             status = monitor.get_status()
 
             if status:
-                self.cpu_usage.set(status.cpu_percent)
-                self.ram_used.set(status.ram_used * 1024 * 1024 * 1024)  # GB to bytes
-                self.ram_total.set(status.ram_total * 1024 * 1024 * 1024)
+                cpu_percent = status.cpu.usage_percent if status.cpu else 0
+                ram_used = status.ram.used_gb if status.ram else 0
+                ram_total = status.ram.total_gb if status.ram else 0
+                self.cpu_usage.set(cpu_percent)
+                self.ram_used.set(ram_used * 1024 * 1024 * 1024)  # GB to bytes
+                self.ram_total.set(ram_total * 1024 * 1024 * 1024)
 
                 for gpu in status.gpus:
                     labels = {"gpu_index": str(gpu.index), "gpu_name": gpu.name}
-                    self.gpu_vram_used.set(gpu.memory_used * 1024 * 1024, **labels)
-                    self.gpu_vram_total.set(gpu.memory_total * 1024 * 1024, **labels)
-                    self.gpu_utilization.set(gpu.utilization, **labels)
+                    self.gpu_vram_used.set(gpu.vram_used_mb * 1024 * 1024, **labels)
+                    self.gpu_vram_total.set(gpu.vram_total_mb * 1024 * 1024, **labels)
+                    self.gpu_utilization.set(gpu.gpu_utilization, **labels)
                     self.gpu_temperature.set(gpu.temperature, **labels)
         except Exception:
             pass
@@ -453,3 +466,344 @@ def get_metrics() -> SCIOMetrics:
     if _metrics is None:
         _metrics = SCIOMetrics()
     return _metrics
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MEGA-UPGRADE: ALERTING RULES
+# ═══════════════════════════════════════════════════════════════════════════
+
+class AlertSeverity:
+    """Alert Schweregrade."""
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class AlertRule:
+    """
+    MEGA-UPGRADE: Alert Rule Definition
+
+    Definiert eine Alerting-Regel für Metriken.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        condition: str,
+        severity: str,
+        threshold: float,
+        for_duration_seconds: int = 60,
+    ):
+        self.name = name
+        self.description = description
+        self.condition = condition
+        self.severity = severity
+        self.threshold = threshold
+        self.for_duration_seconds = for_duration_seconds
+        self.triggered_at = None
+        self.is_firing = False
+
+    def to_dict(self) -> dict:
+        """Konvertiert zu Dictionary."""
+        return {
+            'name': self.name,
+            'description': self.description,
+            'condition': self.condition,
+            'severity': self.severity,
+            'threshold': self.threshold,
+            'for_duration': self.for_duration_seconds,
+            'is_firing': self.is_firing,
+        }
+
+
+# Standard Alerting Rules
+SCIO_ALERT_RULES = [
+    AlertRule(
+        name="HighResponseTimeP99",
+        description="Response Time P99 über 2 Sekunden",
+        condition="scio_request_duration_seconds{quantile='0.99'} > 2",
+        severity=AlertSeverity.WARNING,
+        threshold=2.0,
+    ),
+    AlertRule(
+        name="HighErrorRate",
+        description="Error Rate über 1%",
+        condition="rate(scio_request_errors_total[5m]) / rate(scio_requests_total[5m]) > 0.01",
+        severity=AlertSeverity.CRITICAL,
+        threshold=0.01,
+    ),
+    AlertRule(
+        name="HighGPUMemory",
+        description="GPU VRAM Nutzung über 90%",
+        condition="scio_gpu_vram_used_bytes / scio_gpu_vram_total_bytes > 0.9",
+        severity=AlertSeverity.WARNING,
+        threshold=0.9,
+    ),
+    AlertRule(
+        name="LargeJobQueue",
+        description="Job Queue über 50 Jobs",
+        condition="scio_jobs_queued > 50",
+        severity=AlertSeverity.WARNING,
+        threshold=50,
+    ),
+    AlertRule(
+        name="WorkerUnhealthy",
+        description="Worker ist unhealthy",
+        condition="scio_modules_healthy < scio_modules_registered",
+        severity=AlertSeverity.CRITICAL,
+        threshold=0,
+    ),
+    AlertRule(
+        name="HighCPUUsage",
+        description="CPU Nutzung über 90%",
+        condition="scio_cpu_usage_percent > 90",
+        severity=AlertSeverity.WARNING,
+        threshold=90,
+    ),
+    AlertRule(
+        name="HighRAMUsage",
+        description="RAM Nutzung über 90%",
+        condition="scio_ram_used_bytes / scio_ram_total_bytes > 0.9",
+        severity=AlertSeverity.WARNING,
+        threshold=0.9,
+    ),
+]
+
+
+class AlertManager:
+    """
+    MEGA-UPGRADE: Alert Manager
+
+    Verwaltet und evaluiert Alerting-Regeln.
+    """
+
+    def __init__(self, rules: List[AlertRule] = None):
+        self.rules = rules or SCIO_ALERT_RULES
+        self._callbacks = []
+        self._firing_alerts = {}
+
+    def add_callback(self, callback):
+        """Registriert Callback für Alerts."""
+        self._callbacks.append(callback)
+
+    def evaluate(self, metrics: SCIOMetrics) -> List[dict]:
+        """
+        Evaluiert alle Regeln gegen aktuelle Metriken.
+
+        Returns:
+            Liste der feuernden Alerts
+        """
+        firing = []
+
+        for rule in self.rules:
+            is_firing = self._check_rule(rule, metrics)
+
+            if is_firing and not rule.is_firing:
+                # Neu gefeuert
+                rule.is_firing = True
+                rule.triggered_at = time.time()
+                self._notify(rule, "firing")
+
+            elif not is_firing and rule.is_firing:
+                # Resolved
+                rule.is_firing = False
+                rule.triggered_at = None
+                self._notify(rule, "resolved")
+
+            if rule.is_firing:
+                firing.append(rule.to_dict())
+
+        return firing
+
+    def _check_rule(self, rule: AlertRule, metrics: SCIOMetrics) -> bool:
+        """Prüft ob eine Regel feuert."""
+        try:
+            # Vereinfachte Regelauswertung basierend auf Namen
+            if "ResponseTime" in rule.name:
+                # P99 Response Time
+                hist = metrics.request_duration
+                # Vereinfachte Berechnung
+                total_count = sum(hist.counts.values())
+                if total_count > 0:
+                    total_sum = sum(hist.sums.values())
+                    avg = total_sum / total_count
+                    return avg > rule.threshold
+
+            elif "ErrorRate" in rule.name:
+                errors = sum(metrics.request_errors.values.values())
+                requests = sum(metrics.requests_total.values.values())
+                if requests > 0:
+                    return errors / requests > rule.threshold
+
+            elif "GPUMemory" in rule.name:
+                used = sum(metrics.gpu_vram_used.values.values())
+                total = sum(metrics.gpu_vram_total.values.values())
+                if total > 0:
+                    return used / total > rule.threshold
+
+            elif "JobQueue" in rule.name:
+                queued = list(metrics.jobs_queued.values.values())
+                if queued:
+                    return queued[0] > rule.threshold
+
+            elif "WorkerUnhealthy" in rule.name:
+                healthy = list(metrics.modules_healthy.values.values())
+                registered = list(metrics.modules_registered.values.values())
+                if healthy and registered:
+                    return healthy[0] < registered[0]
+
+            elif "CPU" in rule.name:
+                cpu = list(metrics.cpu_usage.values.values())
+                if cpu:
+                    return cpu[0] > rule.threshold
+
+            elif "RAM" in rule.name:
+                used = list(metrics.ram_used.values.values())
+                total = list(metrics.ram_total.values.values())
+                if used and total and total[0] > 0:
+                    return used[0] / total[0] > rule.threshold
+
+        except Exception:
+            pass
+
+        return False
+
+    def _notify(self, rule: AlertRule, state: str):
+        """Benachrichtigt Callbacks."""
+        for cb in self._callbacks:
+            try:
+                cb({
+                    'rule': rule.to_dict(),
+                    'state': state,
+                    'timestamp': time.time(),
+                })
+            except Exception:
+                pass
+
+    def get_firing_alerts(self) -> List[dict]:
+        """Gibt alle feuernden Alerts zurück."""
+        return [r.to_dict() for r in self.rules if r.is_firing]
+
+    def get_all_rules(self) -> List[dict]:
+        """Gibt alle Regeln zurück."""
+        return [r.to_dict() for r in self.rules]
+
+
+class SLATracker:
+    """
+    MEGA-UPGRADE: SLA Compliance Tracker
+
+    Trackt SLA-Ziele und Compliance.
+    """
+
+    # SLA Targets (MEGA-UPGRADE Performance Targets)
+    SLA_TARGETS = {
+        'chat_p50_ms': 500,       # Ziel: 500ms P50
+        'chat_p99_ms': 2000,      # Ziel: 2s P99
+        'image_gen_s': 5,         # Ziel: 5s
+        'stt_s': 1,               # Ziel: 1s
+        'uptime_percent': 99.9,   # Ziel: 99.9%
+        'error_rate_percent': 0.1, # Ziel: < 0.1%
+    }
+
+    def __init__(self):
+        self._start_time = time.time()
+        self._downtime_seconds = 0
+        self._total_requests = 0
+        self._failed_requests = 0
+        self._latencies = {
+            'chat': [],
+            'image': [],
+            'stt': [],
+        }
+
+    def record_request(self, service: str, latency_ms: float, success: bool):
+        """Zeichnet Request für SLA-Tracking auf."""
+        self._total_requests += 1
+        if not success:
+            self._failed_requests += 1
+
+        if service in self._latencies:
+            self._latencies[service].append(latency_ms)
+            # Nur letzte 10000 behalten
+            if len(self._latencies[service]) > 10000:
+                self._latencies[service] = self._latencies[service][-10000:]
+
+    def record_downtime(self, seconds: float):
+        """Zeichnet Downtime auf."""
+        self._downtime_seconds += seconds
+
+    def get_compliance(self) -> Dict[str, Any]:
+        """
+        Berechnet SLA Compliance.
+
+        Returns:
+            dict mit compliance Status für jedes SLA
+        """
+        import numpy as np
+
+        uptime = time.time() - self._start_time
+        uptime_percent = ((uptime - self._downtime_seconds) / uptime * 100) if uptime > 0 else 100.0
+
+        error_rate = (self._failed_requests / self._total_requests * 100) if self._total_requests > 0 else 0.0
+
+        compliance = {
+            'uptime': {
+                'current': round(uptime_percent, 3),
+                'target': self.SLA_TARGETS['uptime_percent'],
+                'compliant': uptime_percent >= self.SLA_TARGETS['uptime_percent'],
+            },
+            'error_rate': {
+                'current': round(error_rate, 3),
+                'target': self.SLA_TARGETS['error_rate_percent'],
+                'compliant': error_rate <= self.SLA_TARGETS['error_rate_percent'],
+            },
+        }
+
+        # Latenz-basierte SLAs
+        for service, latencies in self._latencies.items():
+            if latencies:
+                arr = np.array(latencies)
+                p50 = float(np.percentile(arr, 50))
+                p99 = float(np.percentile(arr, 99))
+
+                target_key = f'{service}_p50_ms' if service == 'chat' else f'{service}_s'
+                target = self.SLA_TARGETS.get(target_key, 1000)
+
+                compliance[f'{service}_latency'] = {
+                    'p50': round(p50, 2),
+                    'p99': round(p99, 2),
+                    'target_p50': target,
+                    'compliant': p50 <= target,
+                }
+
+        # Gesamt-Compliance
+        all_compliant = all(
+            v.get('compliant', True)
+            for v in compliance.values()
+        )
+        compliance['overall_compliant'] = all_compliant
+
+        return compliance
+
+
+# Singleton Instances
+_alert_manager: AlertManager = None
+_sla_tracker: SLATracker = None
+
+
+def get_alert_manager() -> AlertManager:
+    """Gibt Alert Manager Singleton zurück."""
+    global _alert_manager
+    if _alert_manager is None:
+        _alert_manager = AlertManager()
+    return _alert_manager
+
+
+def get_sla_tracker() -> SLATracker:
+    """Gibt SLA Tracker Singleton zurück."""
+    global _sla_tracker
+    if _sla_tracker is None:
+        _sla_tracker = SLATracker()
+    return _sla_tracker

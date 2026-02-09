@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SCIO - Job Queue Service
+SCIO - Job Queue Service (MEGA-UPGRADE)
 Verwaltet Job-Queue mit Priority, Retry-Logik und Timeouts
 
 Features:
@@ -9,23 +9,40 @@ Features:
 - Job-Timeouts (verhindert hängende Jobs)
 - Concurrent Job Limits
 - Persistenz in Datenbank
+- AsyncIO Support (GIL-Bypass)
+- Batch Processing für kompatible Jobs
+- Ultra-schnelle Polling (0.05s)
+
+MEGA-UPGRADE v2.0:
+- Polling-Interval: 0.05s (10x schneller)
+- Timeout-Check: 5s (6x schneller)
+- Batch-Processing für kompatible Jobs
+- AsyncIO Integration
 """
 
 import uuid
 import time
 import threading
+import asyncio
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Optional, Callable, List, Dict, Any, Generator
+from typing import Optional, Callable, List, Dict, Any, Generator, Coroutine
 from queue import PriorityQueue, Empty
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from collections import defaultdict
 
 from sqlalchemy.orm import Session
 from backend.models import SessionLocal, Job
 from backend.models.job import JobStatus, JobType
 from backend.config import Config
+
+# Performance Constants (MEGA-UPGRADE)
+POLLING_INTERVAL = 0.05  # 50ms (was 500ms) - 10x faster
+TIMEOUT_CHECK_INTERVAL = 5  # 5s (was 30s) - 6x faster
+MAX_BATCH_SIZE = 8  # Maximum jobs per batch
+BATCH_COMPATIBLE_TYPES = {JobType.TEXT_EMBEDDING, JobType.IMAGE_GENERATION}  # Types that can be batched
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -60,13 +77,16 @@ class QueuedJob:
 
 class JobQueue:
     """
-    Job Queue Service
+    Job Queue Service (MEGA-UPGRADE v2.0)
 
     Verwaltet Jobs mit:
     - Priority Queue (höhere Priorität = frühere Bearbeitung)
     - Persistenz in Datenbank
     - Retry bei Fehlern
     - Concurrent Job Limits
+    - Batch Processing (MEGA-UPGRADE)
+    - AsyncIO Integration (MEGA-UPGRADE)
+    - Ultra-schnelle Polling (MEGA-UPGRADE)
     """
 
     def __init__(self, max_concurrent: int = None):
@@ -77,10 +97,26 @@ class JobQueue:
         self._thread: Optional[threading.Thread] = None
         self._timeout_thread: Optional[threading.Thread] = None
         self._workers: Dict[str, Callable] = {}
+        self._async_workers: Dict[str, Callable] = {}  # MEGA-UPGRADE: Async workers
         self._active_jobs: Dict[str, Dict[str, Any]] = {}  # job_id -> {thread, started_at}
         self._lock = threading.Lock()
         self._callbacks: List[Callable] = []
         self._executor = ThreadPoolExecutor(max_workers=max_concurrent or Config.MAX_CONCURRENT_JOBS)
+
+        # MEGA-UPGRADE: Batch processing
+        self._batch_queue: Dict[str, List[QueuedJob]] = defaultdict(list)
+        self._batch_lock = threading.Lock()
+
+        # MEGA-UPGRADE: Performance metrics
+        self._metrics = {
+            'jobs_processed': 0,
+            'batches_processed': 0,
+            'avg_wait_time': 0.0,
+            'avg_process_time': 0.0,
+        }
+
+        # MEGA-UPGRADE: AsyncIO event loop for async operations
+        self._async_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Load pending jobs from database
         self._load_pending_jobs()
@@ -106,7 +142,7 @@ class JobQueue:
         except Exception as e:
             logger.warning(f"Jobs laden fehlgeschlagen: {e}")
 
-    def register_worker(self, job_type: JobType, worker_func: Callable):
+    def register_worker(self, job_type: JobType, worker_func: Callable, is_async: bool = False):
         """
         Registriert Worker für Job-Typ
 
@@ -114,9 +150,26 @@ class JobQueue:
             job_type: Art des Jobs
             worker_func: Funktion die den Job ausführt
                          Signatur: (job_id: str, input_data: dict) -> dict
+            is_async: Ob der Worker async ist (MEGA-UPGRADE)
         """
-        self._workers[job_type.value] = worker_func
-        logger.info(f"Worker registriert: {job_type.value}")
+        if is_async:
+            self._async_workers[job_type.value] = worker_func
+            logger.info(f"Async Worker registriert: {job_type.value}")
+        else:
+            self._workers[job_type.value] = worker_func
+            logger.info(f"Worker registriert: {job_type.value}")
+
+    def register_batch_worker(self, job_type: JobType, batch_func: Callable):
+        """
+        MEGA-UPGRADE: Registriert Batch-fähigen Worker
+
+        Args:
+            job_type: Art des Jobs
+            batch_func: Batch-Funktion mit Signatur:
+                        (jobs: List[Tuple[str, dict]]) -> List[dict]
+        """
+        self._workers[f"batch_{job_type.value}"] = batch_func
+        logger.info(f"Batch Worker registriert: {job_type.value}")
 
     def add_callback(self, callback: Callable):
         """Registriert Callback für Job-Events"""
@@ -327,7 +380,7 @@ class JobQueue:
                     del self._active_jobs[job_id]
 
     def _process_loop(self):
-        """Haupt-Processing Loop"""
+        """Haupt-Processing Loop (MEGA-UPGRADE: Ultra-schnell)"""
         while self._running:
             try:
                 # Check if we can run more jobs
@@ -335,13 +388,15 @@ class JobQueue:
                     active_count = len(self._active_jobs)
 
                 if active_count >= self.max_concurrent:
-                    time.sleep(0.5)
+                    time.sleep(POLLING_INTERVAL)  # MEGA-UPGRADE: 10x faster
                     continue
 
-                # Try to get next job (non-blocking)
+                # Try to get next job (non-blocking) - MEGA-UPGRADE: Much faster timeout
                 try:
-                    queued_job = self._queue.get(timeout=1.0)
+                    queued_job = self._queue.get(timeout=POLLING_INTERVAL)
                 except Empty:
+                    # MEGA-UPGRADE: Check batch queue while waiting
+                    self._process_batch_queue()
                     continue
                 except Exception as e:
                     logger.error(f"Error getting job from queue: {e}")
@@ -355,7 +410,18 @@ class JobQueue:
                 if not job_valid:
                     continue
 
-                # Start job thread
+                # MEGA-UPGRADE: Check for batch-compatible jobs
+                if queued_job.job_type in BATCH_COMPATIBLE_TYPES:
+                    self._add_to_batch(queued_job)
+                    continue
+
+                # MEGA-UPGRADE: Check for async workers
+                job_type = queued_job.job_type.value
+                if job_type in self._async_workers:
+                    self._execute_async_job(queued_job)
+                    continue
+
+                # Start job thread (standard path)
                 thread = threading.Thread(
                     target=self._execute_job,
                     args=(queued_job,),
@@ -372,13 +438,139 @@ class JobQueue:
 
             except Exception as e:
                 logger.error(f"Process Loop Fehler: {e}")
-                time.sleep(1)
+                time.sleep(POLLING_INTERVAL)
+
+    def _add_to_batch(self, queued_job: QueuedJob):
+        """MEGA-UPGRADE: Fügt Job zur Batch-Queue hinzu"""
+        with self._batch_lock:
+            job_type = queued_job.job_type.value
+            self._batch_queue[job_type].append(queued_job)
+
+            # Wenn Batch voll ist, sofort verarbeiten
+            if len(self._batch_queue[job_type]) >= MAX_BATCH_SIZE:
+                self._execute_batch(job_type)
+
+    def _process_batch_queue(self):
+        """MEGA-UPGRADE: Verarbeitet angesammelte Batch-Jobs"""
+        with self._batch_lock:
+            for job_type, jobs in list(self._batch_queue.items()):
+                if jobs:
+                    self._execute_batch(job_type)
+
+    def _execute_batch(self, job_type: str):
+        """MEGA-UPGRADE: Führt Batch von Jobs aus"""
+        with self._batch_lock:
+            jobs = self._batch_queue[job_type]
+            if not jobs:
+                return
+
+            batch_jobs = jobs[:MAX_BATCH_SIZE]
+            self._batch_queue[job_type] = jobs[MAX_BATCH_SIZE:]
+
+        batch_worker = self._workers.get(f"batch_{job_type}")
+        if not batch_worker:
+            # Fallback: Einzeln verarbeiten
+            for job in batch_jobs:
+                thread = threading.Thread(
+                    target=self._execute_job,
+                    args=(job,),
+                    daemon=True
+                )
+                thread.start()
+                with self._lock:
+                    self._active_jobs[job.job_id] = {
+                        'thread': thread,
+                        'started_at': time.time(),
+                        'job_type': job.job_type.value,
+                    }
+            return
+
+        # Batch-Ausführung
+        thread = threading.Thread(
+            target=self._execute_batch_jobs,
+            args=(batch_jobs, batch_worker),
+            daemon=True
+        )
+        thread.start()
+        self._metrics['batches_processed'] += 1
+
+    def _execute_batch_jobs(self, batch_jobs: List[QueuedJob], batch_worker: Callable):
+        """MEGA-UPGRADE: Führt Batch-Worker aus"""
+        job_data = [(job.job_id, job.input_data) for job in batch_jobs]
+
+        try:
+            # Alle Jobs auf RUNNING setzen
+            for job in batch_jobs:
+                with get_db_session() as db:
+                    db_job = db.query(Job).filter(Job.job_id == job.job_id).first()
+                    if db_job:
+                        db_job.status = JobStatus.RUNNING
+                        db_job.started_at = datetime.utcnow()
+
+            # Batch-Worker ausführen
+            results = batch_worker(job_data)
+
+            # Ergebnisse speichern
+            for i, job in enumerate(batch_jobs):
+                result = results[i] if i < len(results) else {}
+                with get_db_session() as db:
+                    db_job = db.query(Job).filter(Job.job_id == job.job_id).first()
+                    if db_job:
+                        db_job.status = JobStatus.COMPLETED
+                        db_job.completed_at = datetime.utcnow()
+                        db_job.output_data = result
+
+                self._notify('job_completed', job.job_id, result)
+                self._metrics['jobs_processed'] += 1
+
+        except Exception as e:
+            logger.error(f"Batch-Fehler: {e}")
+            for job in batch_jobs:
+                self._notify('job_failed', job.job_id, {'error': str(e)})
+
+    def _execute_async_job(self, queued_job: QueuedJob):
+        """MEGA-UPGRADE: Führt async Job aus"""
+        async_worker = self._async_workers.get(queued_job.job_type.value)
+        if not async_worker:
+            return
+
+        def run_async():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(
+                    async_worker(queued_job.job_id, queued_job.input_data)
+                )
+                with get_db_session() as db:
+                    job = db.query(Job).filter(Job.job_id == queued_job.job_id).first()
+                    if job:
+                        job.status = JobStatus.COMPLETED
+                        job.completed_at = datetime.utcnow()
+                        job.output_data = result
+                self._notify('job_completed', queued_job.job_id, result)
+            except Exception as e:
+                logger.error(f"Async job error: {e}")
+                self._notify('job_failed', queued_job.job_id, {'error': str(e)})
+            finally:
+                loop.close()
+                with self._lock:
+                    if queued_job.job_id in self._active_jobs:
+                        del self._active_jobs[queued_job.job_id]
+
+        thread = threading.Thread(target=run_async, daemon=True)
+        thread.start()
+        with self._lock:
+            self._active_jobs[queued_job.job_id] = {
+                'thread': thread,
+                'started_at': time.time(),
+                'job_type': queued_job.job_type.value,
+            }
 
     def _check_timeouts(self):
-        """Überwacht Jobs auf Timeouts"""
+        """Überwacht Jobs auf Timeouts (MEGA-UPGRADE: 6x schneller)"""
         while self._running:
             try:
-                time.sleep(30)  # Check every 30 seconds
+                time.sleep(TIMEOUT_CHECK_INTERVAL)  # MEGA-UPGRADE: 5s statt 30s
 
                 current_time = time.time()
                 timed_out_jobs = []
@@ -435,13 +627,19 @@ class JobQueue:
         self._timeout_thread.start()
 
         logger.info(f"Job Queue gestartet (max {self.max_concurrent} concurrent, timeout {self.job_timeout}s)")
+        logger.info(f"MEGA-UPGRADE: Polling={POLLING_INTERVAL}s, Timeout-Check={TIMEOUT_CHECK_INTERVAL}s, Batch-Size={MAX_BATCH_SIZE}")
 
-    def stop(self):
-        """Stoppt die Job-Queue"""
+    def stop(self, wait: bool = False, timeout: int = 30):
+        """Stoppt die Job-Queue
+
+        Args:
+            wait: Ob auf laufende Jobs gewartet werden soll
+            timeout: Maximale Wartezeit in Sekunden
+        """
         self._running = False
 
         if self._thread:
-            self._thread.join(timeout=5.0)
+            self._thread.join(timeout=timeout if wait else 5.0)
             self._thread = None
 
         if self._timeout_thread:
@@ -449,7 +647,7 @@ class JobQueue:
             self._timeout_thread = None
 
         # Shutdown executor
-        self._executor.shutdown(wait=False)
+        self._executor.shutdown(wait=wait)
 
         logger.info("Job Queue gestoppt")
 
@@ -497,6 +695,15 @@ class JobQueue:
                     'timed_out': timed_out,
                 },
                 'active_job_details': self.get_active_job_details(),
+                # MEGA-UPGRADE: Performance metrics
+                'mega_upgrade': {
+                    'polling_interval_ms': POLLING_INTERVAL * 1000,
+                    'timeout_check_interval_s': TIMEOUT_CHECK_INTERVAL,
+                    'max_batch_size': MAX_BATCH_SIZE,
+                    'jobs_processed': self._metrics['jobs_processed'],
+                    'batches_processed': self._metrics['batches_processed'],
+                    'batch_queue_sizes': {k: len(v) for k, v in self._batch_queue.items()},
+                },
             }
 
     def get_active_job_details(self) -> List[dict]:
