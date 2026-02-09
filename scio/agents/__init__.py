@@ -17,6 +17,18 @@ from scio.agents.finance_advisor import (
     FinanceAdvice,
     AdvisorTopic,
 )
+from scio.agents.master_agent import (
+    MasterAgent,
+    AgentCapability,
+    AgentTask,
+    AgentThought,
+    AgentMemory,
+    create_master_agent,
+    create_research_agent,
+    create_trading_agent,
+    create_content_agent,
+    create_automation_agent,
+)
 
 __all__ = [
     "Agent",
@@ -34,4 +46,15 @@ __all__ = [
     "FinanceAdvisor",
     "FinanceAdvice",
     "AdvisorTopic",
+    # Master Agent
+    "MasterAgent",
+    "AgentCapability",
+    "AgentTask",
+    "AgentThought",
+    "AgentMemory",
+    "create_master_agent",
+    "create_research_agent",
+    "create_trading_agent",
+    "create_content_agent",
+    "create_automation_agent",
 ]

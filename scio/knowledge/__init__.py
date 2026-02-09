@@ -45,6 +45,19 @@ from scio.knowledge.internet_access import (
     fetch,
     search_papers,
 )
+from scio.knowledge.ultimate_knowledge import (
+    UltimateKnowledgeBase,
+    KnowledgeDomain,
+    KnowledgeEntry as UltimateKnowledgeEntry,
+    get_knowledge,
+)
+from scio.knowledge.mega_knowledge import (
+    MegaKnowledge,
+    MoneyMethod,
+    TechStack,
+    ExpertiseLevel,
+    get_mega_knowledge,
+)
 
 __all__ = [
     # Base
@@ -81,4 +94,15 @@ __all__ = [
     "search",
     "fetch",
     "search_papers",
+    # Ultimate Knowledge
+    "UltimateKnowledgeBase",
+    "KnowledgeDomain",
+    "UltimateKnowledgeEntry",
+    "get_knowledge",
+    # Mega Knowledge
+    "MegaKnowledge",
+    "MoneyMethod",
+    "TechStack",
+    "ExpertiseLevel",
+    "get_mega_knowledge",
 ]
