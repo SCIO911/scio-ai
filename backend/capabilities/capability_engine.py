@@ -461,6 +461,21 @@ class CapabilityEngine:
             "initialized": self._initialized
         }
 
+    def get_all_tools(self) -> List[Dict[str, Any]]:
+        """Gibt alle registrierten Tools zurueck"""
+        tools = []
+        for tool_id, tool in self.registry.tools.items():
+            tools.append({
+                "id": tool_id,
+                "name": tool.name,
+                "description": tool.description,
+                "category": tool.category.value if hasattr(tool.category, 'value') else str(tool.category),
+                "tags": list(tool.tags) if tool.tags else [],
+                "requires_gpu": tool.requires_gpu,
+                "requires_network": tool.requires_network
+            })
+        return tools
+
 
 # Singleton
 _capability_engine: Optional[CapabilityEngine] = None

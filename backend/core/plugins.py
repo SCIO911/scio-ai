@@ -408,7 +408,7 @@ def _register_default_handlers(registry: WorkflowHandlerRegistry):
                 content = response.read().decode()
                 try:
                     result = json.loads(content)
-                except:
+                except (json.JSONDecodeError, ValueError):
                     result = content
 
                 return {

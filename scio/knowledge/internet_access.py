@@ -263,28 +263,164 @@ class HTTPClient(ABC):
 
 class SimpleHTTPClient(HTTPClient):
     """
-    Einfacher HTTP Client.
+    HTTP Client mit httpx für echte HTTP-Requests.
 
-    In der echten Implementierung würde man aiohttp oder httpx verwenden.
-    Hier ist ein Platzhalter, der das Interface definiert.
+    Unterstützt:
+    - Async GET/POST Requests
+    - Automatisches Retry bei Fehlern
+    - Timeout-Handling
+    - SSL-Verifizierung
     """
 
     def __init__(self, config: InternetConfig):
         self.config = config
+        self._client: Optional[Any] = None
+
+    async def _get_client(self) -> Any:
+        """Lazy initialization des HTTP Clients."""
+        if self._client is None:
+            try:
+                import httpx
+                self._client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(self.config.timeout),
+                    follow_redirects=True,
+                    verify=True,
+                    headers={
+                        "User-Agent": self.config.user_agent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+                    }
+                )
+            except ImportError:
+                logger.warning("httpx nicht installiert - verwende urllib als Fallback")
+                self._client = "fallback"
+        return self._client
 
     async def get(self, url: str, headers: Optional[Dict] = None) -> Tuple[int, str]:
-        """GET Request (Platzhalter-Implementierung)."""
-        # In echter Implementierung:
-        # async with aiohttp.ClientSession() as session:
-        #     async with session.get(url, headers=headers) as response:
-        #         return response.status, await response.text()
+        """
+        Führt einen GET Request aus.
 
-        # Platzhalter
-        return 200, f"<html><body>Content from {url}</body></html>"
+        Args:
+            url: Die URL für den Request
+            headers: Optionale zusätzliche Headers
+
+        Returns:
+            Tuple aus (status_code, response_text)
+        """
+        client = await self._get_client()
+
+        if client == "fallback":
+            return await self._fallback_get(url, headers)
+
+        try:
+            import httpx
+            merged_headers = headers or {}
+            response = await client.get(url, headers=merged_headers)
+            return response.status_code, response.text
+
+        except httpx.TimeoutException:
+            logger.warning(f"Timeout bei GET {url}")
+            return 408, f'{{"error": "Request timeout for {url}"}}'
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"HTTP Fehler bei GET {url}: {e.response.status_code}")
+            return e.response.status_code, e.response.text
+
+        except Exception as e:
+            logger.error(f"GET Request fehlgeschlagen für {url}: {e}")
+            return 500, f'{{"error": "{str(e)}"}}'
 
     async def post(self, url: str, data: Dict, headers: Optional[Dict] = None) -> Tuple[int, str]:
-        """POST Request (Platzhalter-Implementierung)."""
-        return 200, json.dumps({"result": "success"})
+        """
+        Führt einen POST Request aus.
+
+        Args:
+            url: Die URL für den Request
+            data: Die zu sendenden Daten
+            headers: Optionale zusätzliche Headers
+
+        Returns:
+            Tuple aus (status_code, response_text)
+        """
+        client = await self._get_client()
+
+        if client == "fallback":
+            return await self._fallback_post(url, data, headers)
+
+        try:
+            import httpx
+            merged_headers = {"Content-Type": "application/json"}
+            if headers:
+                merged_headers.update(headers)
+
+            response = await client.post(url, json=data, headers=merged_headers)
+            return response.status_code, response.text
+
+        except httpx.TimeoutException:
+            logger.warning(f"Timeout bei POST {url}")
+            return 408, f'{{"error": "Request timeout for {url}"}}'
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"HTTP Fehler bei POST {url}: {e.response.status_code}")
+            return e.response.status_code, e.response.text
+
+        except Exception as e:
+            logger.error(f"POST Request fehlgeschlagen für {url}: {e}")
+            return 500, f'{{"error": "{str(e)}"}}'
+
+    async def _fallback_get(self, url: str, headers: Optional[Dict] = None) -> Tuple[int, str]:
+        """Fallback GET mit urllib für den Fall dass httpx nicht verfügbar ist."""
+        import urllib.request
+        import urllib.error
+
+        try:
+            req = urllib.request.Request(url, headers=headers or {})
+            req.add_header("User-Agent", self.config.user_agent)
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: urllib.request.urlopen(req, timeout=self.config.timeout)
+            )
+            return response.status, response.read().decode('utf-8', errors='replace')
+
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode('utf-8', errors='replace')
+        except urllib.error.URLError as e:
+            return 503, f'{{"error": "Connection failed: {str(e)}"}}'
+        except Exception as e:
+            return 500, f'{{"error": "{str(e)}"}}'
+
+    async def _fallback_post(self, url: str, data: Dict, headers: Optional[Dict] = None) -> Tuple[int, str]:
+        """Fallback POST mit urllib."""
+        import urllib.request
+        import urllib.error
+
+        try:
+            json_data = json.dumps(data).encode('utf-8')
+            req = urllib.request.Request(url, data=json_data, headers=headers or {})
+            req.add_header("User-Agent", self.config.user_agent)
+            req.add_header("Content-Type", "application/json")
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: urllib.request.urlopen(req, timeout=self.config.timeout)
+            )
+            return response.status, response.read().decode('utf-8', errors='replace')
+
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode('utf-8', errors='replace')
+        except urllib.error.URLError as e:
+            return 503, f'{{"error": "Connection failed: {str(e)}"}}'
+        except Exception as e:
+            return 500, f'{{"error": "{str(e)}"}}'
+
+    async def close(self):
+        """Schließt den HTTP Client."""
+        if self._client and self._client != "fallback":
+            await self._client.aclose()
+            self._client = None
 
 
 # ============================================================================
@@ -422,40 +558,105 @@ class InternetKnowledge:
         return results
 
     async def _search_duckduckgo(self, query: str, num_results: int) -> List[SearchResult]:
-        """DuckDuckGo Suche."""
-        # Platzhalter-Implementierung
-        # In echt würde man die DuckDuckGo API oder HTML scrapen
+        """DuckDuckGo Suche mit echtem HTML-Parsing."""
         encoded_query = quote_plus(query)
         url = f"https://duckduckgo.com/html/?q={encoded_query}"
 
         try:
             status, html_content = await self.http.get(url)
-            if status == 200:
-                # Parse results (vereinfacht)
+            if status == 200 and html_content:
                 results = []
-                for i in range(num_results):
+                # Parse echte DuckDuckGo HTML-Ergebnisse
+                import re
+                # DuckDuckGo result links pattern
+                link_pattern = r'<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>([^<]+)</a>'
+                snippet_pattern = r'<a class="result__snippet"[^>]*>([^<]+)</a>'
+
+                links = re.findall(link_pattern, html_content)
+                snippets = re.findall(snippet_pattern, html_content)
+
+                for i, (link_url, title) in enumerate(links[:num_results]):
+                    snippet = snippets[i] if i < len(snippets) else ""
+                    # DuckDuckGo redirect URLs dekodieren
+                    if link_url.startswith("//duckduckgo.com/l/?"):
+                        import urllib.parse
+                        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(link_url).query)
+                        link_url = parsed.get("uddg", [link_url])[0]
+
                     results.append(SearchResult(
-                        title=f"Result {i+1} for: {query}",
-                        url=f"https://example.com/result{i+1}",
-                        snippet=f"This is a sample snippet for search query: {query}",
+                        title=title.strip(),
+                        url=link_url,
+                        snippet=snippet.strip(),
                         source=SearchEngine.DUCKDUCKGO,
                         rank=i + 1,
-                        relevance_score=1.0 - (i * 0.1),
+                        relevance_score=1.0 - (i * 0.05),
                     ))
-                return results
+
+                if results:
+                    return results
+                logger.warning(f"DuckDuckGo: Keine Ergebnisse gefunden für '{query}'")
+
         except Exception as e:
             logger.error(f"DuckDuckGo search failed: {e}")
 
         return []
 
     async def _search_google(self, query: str, num_results: int) -> List[SearchResult]:
-        """Google Suche (würde API-Key benötigen)."""
-        # Platzhalter
+        """Google Suche - erfordert API-Key Konfiguration."""
+        api_key = os.getenv("GOOGLE_API_KEY")
+        search_engine_id = os.getenv("GOOGLE_SEARCH_ENGINE_ID")
+
+        if not api_key or not search_engine_id:
+            logger.warning("Google Search nicht konfiguriert: GOOGLE_API_KEY und GOOGLE_SEARCH_ENGINE_ID erforderlich")
+            return []
+
+        url = f"https://www.googleapis.com/customsearch/v1?key={api_key}&cx={search_engine_id}&q={quote_plus(query)}&num={num_results}"
+        try:
+            status, content = await self.http.get(url)
+            if status == 200:
+                data = json.loads(content)
+                results = []
+                for i, item in enumerate(data.get("items", [])[:num_results]):
+                    results.append(SearchResult(
+                        title=item.get("title", ""),
+                        url=item.get("link", ""),
+                        snippet=item.get("snippet", ""),
+                        source=SearchEngine.GOOGLE,
+                        rank=i + 1,
+                        relevance_score=1.0 - (i * 0.05),
+                    ))
+                return results
+        except Exception as e:
+            logger.error(f"Google search failed: {e}")
         return []
 
     async def _search_bing(self, query: str, num_results: int) -> List[SearchResult]:
-        """Bing Suche (würde API-Key benötigen)."""
-        # Platzhalter
+        """Bing Suche - erfordert API-Key Konfiguration."""
+        api_key = os.getenv("BING_API_KEY")
+
+        if not api_key:
+            logger.warning("Bing Search nicht konfiguriert: BING_API_KEY erforderlich")
+            return []
+
+        url = f"https://api.bing.microsoft.com/v7.0/search?q={quote_plus(query)}&count={num_results}"
+        headers = {"Ocp-Apim-Subscription-Key": api_key}
+        try:
+            status, content = await self.http.get(url, headers=headers)
+            if status == 200:
+                data = json.loads(content)
+                results = []
+                for i, item in enumerate(data.get("webPages", {}).get("value", [])[:num_results]):
+                    results.append(SearchResult(
+                        title=item.get("name", ""),
+                        url=item.get("url", ""),
+                        snippet=item.get("snippet", ""),
+                        source=SearchEngine.BING,
+                        rank=i + 1,
+                        relevance_score=1.0 - (i * 0.05),
+                    ))
+                return results
+        except Exception as e:
+            logger.error(f"Bing search failed: {e}")
         return []
 
     async def _search_wikipedia(self, query: str, num_results: int) -> List[SearchResult]:
@@ -486,9 +687,49 @@ class InternetKnowledge:
         return []
 
     async def _search_github(self, query: str, num_results: int) -> List[SearchResult]:
-        """GitHub Code/Repository Suche."""
-        # Platzhalter - würde GitHub API verwenden
-        return []
+        """
+        GitHub Repository/Code Suche.
+
+        Nutzt die GitHub Search API für Code und Repositories.
+        """
+        results = []
+
+        # GitHub API für Repository-Suche
+        api_url = f"https://api.github.com/search/repositories?q={quote_plus(query)}&per_page={num_results}"
+
+        try:
+            headers = {"Accept": "application/vnd.github.v3+json"}
+            status, content = await self.http.get(api_url, headers=headers)
+
+            if status == 200:
+                data = json.loads(content)
+
+                for i, item in enumerate(data.get("items", [])[:num_results]):
+                    results.append(SearchResult(
+                        title=item.get("full_name", "Unknown"),
+                        url=item.get("html_url", ""),
+                        snippet=item.get("description", "")[:300] if item.get("description") else "",
+                        source=SearchEngine.GITHUB,
+                        rank=i + 1,
+                        relevance_score=item.get("score", 0.0),
+                        metadata={
+                            "stars": item.get("stargazers_count", 0),
+                            "forks": item.get("forks_count", 0),
+                            "language": item.get("language"),
+                            "updated_at": item.get("updated_at"),
+                            "topics": item.get("topics", []),
+                        }
+                    ))
+
+            elif status == 403:
+                logger.warning("GitHub API rate limit erreicht")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"GitHub JSON parse error: {e}")
+        except Exception as e:
+            logger.error(f"GitHub search failed: {e}")
+
+        return results
 
     # ========================================================================
     # FETCH WEBPAGE
@@ -592,40 +833,184 @@ class InternetKnowledge:
         return papers
 
     async def _search_arxiv(self, query: str, max_results: int) -> List[Paper]:
-        """ArXiv Suche."""
+        """
+        ArXiv Suche mit echtem XML-Parsing.
+
+        Nutzt die ArXiv API und parst das Atom/XML Response Format.
+        """
         encoded_query = quote_plus(query)
         url = f"http://export.arxiv.org/api/query?search_query=all:{encoded_query}&start=0&max_results={max_results}"
 
         try:
             status, content = await self.http.get(url)
             if status == 200:
-                # Parse Atom/XML feed (vereinfacht)
-                papers = []
-                # In echter Implementierung würde man XML parsen
-                for i in range(min(max_results, 5)):
-                    papers.append(Paper(
-                        id=f"arxiv:{generate_id('paper')}",
-                        title=f"Paper about: {query} ({i+1})",
-                        abstract=f"This paper investigates {query}...",
-                        authors=["Author A", "Author B"],
-                        url=f"https://arxiv.org/abs/2024.{i:05d}",
-                        source=SearchEngine.ARXIV,
-                        categories=["cs.AI", "cs.LG"],
-                    ))
-                return papers
+                papers = self._parse_arxiv_xml(content)
+                return papers[:max_results]
         except Exception as e:
             logger.error(f"ArXiv search failed: {e}")
 
         return []
 
+    def _parse_arxiv_xml(self, xml_content: str) -> List[Paper]:
+        """Parst ArXiv Atom/XML Response."""
+        papers = []
+
+        # Extrahiere Entry-Blöcke
+        entry_pattern = r'<entry>(.*?)</entry>'
+        entries = re.findall(entry_pattern, xml_content, re.DOTALL)
+
+        for entry in entries:
+            try:
+                # ID extrahieren
+                id_match = re.search(r'<id>([^<]+)</id>', entry)
+                arxiv_id = id_match.group(1) if id_match else ""
+                # Konvertiere URL zu ID
+                arxiv_id = arxiv_id.replace("http://arxiv.org/abs/", "").strip()
+
+                # Titel extrahieren
+                title_match = re.search(r'<title>([^<]+)</title>', entry)
+                title = title_match.group(1).strip() if title_match else "Unknown"
+                title = re.sub(r'\s+', ' ', title)  # Normalisiere Whitespace
+
+                # Abstract extrahieren
+                abstract_match = re.search(r'<summary>([^<]+)</summary>', entry)
+                abstract = abstract_match.group(1).strip() if abstract_match else ""
+                abstract = re.sub(r'\s+', ' ', abstract)
+
+                # Autoren extrahieren
+                author_pattern = r'<author>.*?<name>([^<]+)</name>.*?</author>'
+                authors = re.findall(author_pattern, entry, re.DOTALL)
+
+                # Kategorien extrahieren
+                category_pattern = r'<category[^>]*term="([^"]+)"'
+                categories = re.findall(category_pattern, entry)
+
+                # URL
+                link_match = re.search(r'<link[^>]*href="([^"]*arxiv[^"]*)"[^>]*/>', entry)
+                paper_url = link_match.group(1) if link_match else f"https://arxiv.org/abs/{arxiv_id}"
+
+                papers.append(Paper(
+                    id=f"arxiv:{arxiv_id}",
+                    title=title,
+                    abstract=abstract[:1000],  # Begrenzen
+                    authors=authors[:10],
+                    url=paper_url,
+                    source=SearchEngine.ARXIV,
+                    categories=categories[:5],
+                ))
+
+            except Exception as e:
+                logger.debug(f"Error parsing ArXiv entry: {e}")
+                continue
+
+        return papers
+
     async def _search_semantic_scholar(self, query: str, max_results: int) -> List[Paper]:
-        """Semantic Scholar Suche."""
-        # Platzhalter
+        """
+        Semantic Scholar API Suche.
+
+        Nutzt die öffentliche API von Semantic Scholar.
+        """
+        url = "https://api.semanticscholar.org/graph/v1/paper/search"
+        params = f"?query={quote_plus(query)}&limit={min(max_results, 100)}&fields=paperId,title,abstract,authors,url,venue,year"
+
+        try:
+            status, content = await self.http.get(url + params)
+            if status == 200:
+                data = json.loads(content)
+                papers = []
+
+                for item in data.get("data", []):
+                    authors = [
+                        a.get("name", "Unknown")
+                        for a in item.get("authors", [])
+                    ]
+
+                    papers.append(Paper(
+                        id=f"s2:{item.get('paperId', '')}",
+                        title=item.get("title", "Unknown"),
+                        abstract=item.get("abstract", "")[:1000] if item.get("abstract") else "",
+                        authors=authors[:10],
+                        url=item.get("url", ""),
+                        source=SearchEngine.SEMANTIC_SCHOLAR,
+                        categories=[item.get("venue", "")] if item.get("venue") else [],
+                        year=item.get("year"),
+                    ))
+
+                return papers
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Semantic Scholar JSON parse error: {e}")
+        except Exception as e:
+            logger.error(f"Semantic Scholar search failed: {e}")
+
         return []
 
     async def _search_pubmed(self, query: str, max_results: int) -> List[Paper]:
-        """PubMed Suche."""
-        # Platzhalter
+        """
+        PubMed API Suche.
+
+        Nutzt NCBI E-utilities für die Suche.
+        """
+        # Schritt 1: ESearch für IDs
+        search_url = (
+            f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+            f"?db=pubmed&term={quote_plus(query)}&retmax={max_results}&retmode=json"
+        )
+
+        try:
+            status, content = await self.http.get(search_url)
+            if status != 200:
+                return []
+
+            search_data = json.loads(content)
+            id_list = search_data.get("esearchresult", {}).get("idlist", [])
+
+            if not id_list:
+                return []
+
+            # Schritt 2: EFetch für Details
+            ids_param = ",".join(id_list)
+            fetch_url = (
+                f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+                f"?db=pubmed&id={ids_param}&retmode=json"
+            )
+
+            status, content = await self.http.get(fetch_url)
+            if status != 200:
+                return []
+
+            fetch_data = json.loads(content)
+            result = fetch_data.get("result", {})
+
+            papers = []
+            for pmid in id_list:
+                item = result.get(pmid, {})
+                if not item or pmid == "uids":
+                    continue
+
+                # Autoren aus AuthorList extrahieren
+                author_list = item.get("authors", [])
+                authors = [a.get("name", "") for a in author_list if a.get("name")]
+
+                papers.append(Paper(
+                    id=f"pmid:{pmid}",
+                    title=item.get("title", "Unknown"),
+                    abstract="",  # ESummary gibt kein Abstract zurück
+                    authors=authors[:10],
+                    url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    source=SearchEngine.PUBMED,
+                    categories=[item.get("source", "")],
+                    year=int(item.get("pubdate", "")[:4]) if item.get("pubdate") else None,
+                ))
+
+            return papers
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"PubMed JSON parse error: {e}")
+        except Exception as e:
+            logger.error(f"PubMed search failed: {e}")
+
         return []
 
     # ========================================================================
@@ -661,66 +1046,135 @@ class InternetKnowledge:
         return None
 
     async def _get_weather(self, location: str) -> Optional[RealTimeData]:
-        """Holt Wetterdaten."""
-        # Platzhalter - würde OpenWeatherMap oder ähnlich verwenden
-        return RealTimeData(
-            data_type="weather",
-            data={
-                "location": location,
-                "temperature": 20,
-                "condition": "partly cloudy",
-                "humidity": 65,
-                "wind_speed": 10,
-            },
-            source="weather_api",
-        )
+        """Holt Wetterdaten von Open-Meteo (kostenlos, kein API-Key erforderlich)."""
+        try:
+            # Geocoding für Koordinaten
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={quote_plus(location)}&count=1"
+            status, content = await self.http.get(geo_url)
+            if status != 200:
+                logger.error(f"Geocoding failed for {location}")
+                return None
+
+            geo_data = json.loads(content)
+            if not geo_data.get("results"):
+                logger.warning(f"Location not found: {location}")
+                return None
+
+            lat = geo_data["results"][0]["latitude"]
+            lon = geo_data["results"][0]["longitude"]
+
+            # Wetterdaten abrufen
+            weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+            status, content = await self.http.get(weather_url)
+            if status == 200:
+                data = json.loads(content)
+                current = data.get("current", {})
+                return RealTimeData(
+                    data_type="weather",
+                    data={
+                        "location": location,
+                        "temperature": current.get("temperature_2m"),
+                        "humidity": current.get("relative_humidity_2m"),
+                        "wind_speed": current.get("wind_speed_10m"),
+                        "weather_code": current.get("weather_code"),
+                    },
+                    source="open-meteo.com",
+                )
+        except Exception as e:
+            logger.error(f"Weather fetch failed: {e}")
+        return None
 
     async def _get_stock(self, symbol: str) -> Optional[RealTimeData]:
-        """Holt Börsendaten."""
-        # Platzhalter - würde Alpha Vantage oder ähnlich verwenden
-        return RealTimeData(
-            data_type="stock",
-            data={
-                "symbol": symbol,
-                "price": 150.50,
-                "change": 2.30,
-                "change_percent": 1.55,
-                "volume": 75000000,
-            },
-            source="stock_api",
-        )
+        """Holt Börsendaten von Alpha Vantage API."""
+        api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+        if not api_key:
+            logger.warning("Stock data nicht verfügbar: ALPHAVANTAGE_API_KEY nicht gesetzt")
+            return None
+
+        try:
+            url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}"
+            status, content = await self.http.get(url)
+            if status == 200:
+                data = json.loads(content)
+                quote = data.get("Global Quote", {})
+                if quote:
+                    return RealTimeData(
+                        data_type="stock",
+                        data={
+                            "symbol": quote.get("01. symbol", symbol),
+                            "price": float(quote.get("05. price", 0)),
+                            "change": float(quote.get("09. change", 0)),
+                            "change_percent": quote.get("10. change percent", "0%"),
+                            "volume": int(quote.get("06. volume", 0)),
+                        },
+                        source="alphavantage.co",
+                    )
+        except Exception as e:
+            logger.error(f"Stock fetch failed: {e}")
+        return None
 
     async def _get_crypto(self, coin: str) -> Optional[RealTimeData]:
-        """Holt Kryptowährungsdaten."""
-        # Platzhalter - würde CoinGecko oder ähnlich verwenden
-        return RealTimeData(
-            data_type="crypto",
-            data={
-                "coin": coin,
-                "price_usd": 65000.00,
-                "change_24h": 2.5,
-                "market_cap": 1200000000000,
-            },
-            source="crypto_api",
-        )
+        """Holt Kryptowährungsdaten von CoinGecko (kostenlos)."""
+        try:
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true"
+            status, content = await self.http.get(url)
+            if status == 200:
+                data = json.loads(content)
+                if coin in data:
+                    coin_data = data[coin]
+                    return RealTimeData(
+                        data_type="crypto",
+                        data={
+                            "coin": coin,
+                            "price_usd": coin_data.get("usd"),
+                            "change_24h": coin_data.get("usd_24h_change"),
+                            "market_cap": coin_data.get("usd_market_cap"),
+                        },
+                        source="coingecko.com",
+                    )
+        except Exception as e:
+            logger.error(f"Crypto fetch failed: {e}")
+        return None
 
     async def _get_news(self, topic: str) -> Optional[RealTimeData]:
-        """Holt Nachrichten."""
-        # Platzhalter - würde News API verwenden
-        return RealTimeData(
-            data_type="news",
-            data={
-                "topic": topic,
-                "articles": [
-                    {
-                        "title": f"Latest news about {topic}",
-                        "source": "Example News",
-                        "url": "https://example.com/news/1",
-                    }
-                ],
-            },
-            source="news_api",
-        )
+        """Holt Nachrichten von NewsAPI oder GNews."""
+        api_key = os.getenv("NEWS_API_KEY")
+        if not api_key:
+            # Fallback: GNews API (kostenlos, limitiert)
+            try:
+                url = f"https://gnews.io/api/v4/search?q={quote_plus(topic)}&lang=en&max=5&apikey={os.getenv('GNEWS_API_KEY', '')}"
+                if not os.getenv('GNEWS_API_KEY'):
+                    logger.warning("News API nicht konfiguriert: NEWS_API_KEY oder GNEWS_API_KEY erforderlich")
+                    return None
+                status, content = await self.http.get(url)
+                if status == 200:
+                    data = json.loads(content)
+                    articles = [
+                        {"title": a["title"], "source": a["source"]["name"], "url": a["url"]}
+                        for a in data.get("articles", [])
+                    ]
+                    return RealTimeData(data_type="news", data={"topic": topic, "articles": articles}, source="gnews.io")
+            except Exception as e:
+                logger.error(f"GNews fetch failed: {e}")
+            return None
+
+        try:
+            url = f"https://newsapi.org/v2/everything?q={quote_plus(topic)}&pageSize=5&apiKey={api_key}"
+            status, content = await self.http.get(url)
+            if status == 200:
+                data = json.loads(content)
+                articles = [
+                    {"title": a["title"], "source": a["source"]["name"], "url": a["url"]}
+                    for a in data.get("articles", [])
+                ]
+                return RealTimeData(
+                    data_type="news",
+                    data={"topic": topic, "articles": articles},
+                    source="newsapi.org",
+                )
+        except Exception as e:
+            logger.error(f"News fetch failed: {e}")
+        return None
 
     # ========================================================================
     # API ACCESS

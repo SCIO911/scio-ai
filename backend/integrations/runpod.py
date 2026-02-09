@@ -16,6 +16,11 @@ import requests
 from backend.config import Config
 
 
+class RunPodAPIError(Exception):
+    """Error from RunPod API"""
+    pass
+
+
 @dataclass
 class RunPodEndpoint:
     """RunPod Serverless Endpoint"""
@@ -88,7 +93,7 @@ class RunPodIntegration:
             result = resp.json()
 
             if 'errors' in result:
-                raise Exception(result['errors'][0]['message'])
+                raise RunPodAPIError(result['errors'][0]['message'])
 
             return result.get('data', {})
 

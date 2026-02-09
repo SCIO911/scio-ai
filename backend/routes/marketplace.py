@@ -26,9 +26,9 @@ def submit_job():
     Body:
     {
         "job_type": "image_generation",
-        "params": {...},
-        "customer_email": "kunde@example.com",
-        "payment_method_id": "pm_xxx"  # Optional für Stripe
+        "params": {"prompt": "...", "width": 1024},
+        "customer_email": "<user-email>",
+        "payment_method_id": "<stripe-payment-method-id>"  # Optional
     }
     """
     try:
@@ -203,8 +203,8 @@ def create_payment():
 
     Body:
     {
-        "job_id": "abc123",
-        "customer_email": "kunde@example.com"
+        "job_id": "<job-id>",
+        "customer_email": "<user-email>"
     }
     """
     try:
@@ -341,7 +341,7 @@ def api_docs():
                         'width': 1024,
                         'height': 1024,
                     },
-                    'customer_email': 'kunde@example.com'
+                    'customer_email': '<your-email-address>'
                 }
             }
         }

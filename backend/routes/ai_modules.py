@@ -724,31 +724,31 @@ def ai_combined_stats():
         try:
             from backend.decision import get_decision_engine
             stats['decision'] = get_decision_engine().get_statistics()
-        except:
+        except Exception:
             stats['decision'] = {'status': 'unavailable'}
 
         try:
             from backend.learning import get_rl_agent
             stats['learning'] = get_rl_agent().get_statistics()
-        except:
+        except Exception:
             stats['learning'] = {'status': 'unavailable'}
 
         try:
             from backend.planning import get_planner
             stats['planning'] = get_planner().get_statistics()
-        except:
+        except Exception:
             stats['planning'] = {'status': 'unavailable'}
 
         try:
             from backend.knowledge import get_knowledge_graph
             stats['knowledge'] = get_knowledge_graph().get_statistics()
-        except:
+        except Exception:
             stats['knowledge'] = {'status': 'unavailable'}
 
         try:
             from backend.agents import get_multi_agent_system
             stats['agents'] = get_multi_agent_system().get_statistics()
-        except:
+        except Exception:
             stats['agents'] = {'status': 'unavailable'}
 
         try:
@@ -757,7 +757,7 @@ def ai_combined_stats():
                 'drift': get_drift_detector().get_statistics(),
                 'performance': get_performance_tracker().get_statistics()
             }
-        except:
+        except Exception:
             stats['monitoring'] = {'status': 'unavailable'}
 
         return jsonify(stats)

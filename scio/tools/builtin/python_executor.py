@@ -195,7 +195,7 @@ class PythonExecutorTool(Tool[dict[str, Any], dict[str, Any]]):
             "random": random,
         }
 
-        def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+        def safe_import(name: str, globals: Any = None, locals: Any = None, fromlist: tuple = (), level: int = 0) -> Any:
             """Sichere Import-Funktion die nur erlaubte Module zulässt."""
             base_module = name.split(".")[0]
             if base_module not in allowed_modules:

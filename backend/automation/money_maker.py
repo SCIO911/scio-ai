@@ -377,20 +377,20 @@ Jobs verarbeitet: {self._stats.jobs_processed}
         self._thread.start()
 
         print(f"""
-╔══════════════════════════════════════════════════════════════╗
-║  SCIO MONEY MAKER - AKTIVIERT                                ║
-╠══════════════════════════════════════════════════════════════╣
-║  Automatisches Geldverdienen durch GPU-Vermietung            ║
-║                                                              ║
-║  Features:                                                   ║
-║  [OK] Vast.ai GPU-Vermietung (HOST-ONLY)                     ║
-║  [OK] Automatische Preisoptimierung                          ║
-║  [OK] Intelligente Ressourcen-Allokation                     ║
-║  [OK] Echtzeit Earnings-Tracking                             ║
-║  [OK] Tägliche Reports                                       ║
-║                                                              ║
-║  Bisherige Einnahmen: ${self._stats.total_earnings_usd:>10.2f}                       ║
-╚══════════════════════════════════════════════════════════════╝
+================================================================
+  SCIO MONEY MAKER - AKTIVIERT
+================================================================
+  Automatisches Geldverdienen durch GPU-Vermietung
+
+  Features:
+  [OK] Vast.ai GPU-Vermietung (HOST-ONLY)
+  [OK] Automatische Preisoptimierung
+  [OK] Intelligente Ressourcen-Allokation
+  [OK] Echtzeit Earnings-Tracking
+  [OK] Taegliche Reports
+
+  Bisherige Einnahmen: ${self._stats.total_earnings_usd:>10.2f}
+================================================================
 """)
 
     def stop(self):

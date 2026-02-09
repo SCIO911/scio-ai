@@ -179,36 +179,131 @@ Analysis:"""
         )
 
     def _extract_entities(self, text: str) -> List[str]:
-        """Extrahiert Entitäten (vereinfacht)."""
-        # In echter Implementierung würde man NER verwenden
-        words = text.split()
-        entities = [w for w in words if w[0].isupper() and len(w) > 2]
-        return list(set(entities))[:10]
+        """
+        Extrahiert Named Entities aus Text.
+
+        Nutzt regelbasierte Erkennung für Eigennamen, Organisationen,
+        Datumsangaben, Geldbeträge und URLs.
+        """
+        import re
+
+        entities = set()
+
+        # 1. Eigennamen (nicht am Satzanfang)
+        sentences = re.split(r'[.!?]\s+', text)
+        for sentence in sentences:
+            words = sentence.split()
+            for i, word in enumerate(words):
+                if i == 0:
+                    continue
+                clean_word = re.sub(r'[^\w]', '', word)
+                if clean_word and clean_word[0].isupper() and len(clean_word) > 2:
+                    entities.add(clean_word)
+
+        # 2. Multi-Wort Eigennamen
+        multi_word_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b'
+        entities.update(re.findall(multi_word_pattern, text))
+
+        # 3. Organisationen
+        org_pattern = r'\b([A-Z][a-zA-Z]*(?:\s+(?:Inc|Corp|Ltd|GmbH|AG|LLC|Company|University|Institute))\b\.?)'
+        entities.update(re.findall(org_pattern, text))
+
+        # 4. Datumsangaben
+        date_patterns = [
+            r'\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b',
+            r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b',
+        ]
+        for pattern in date_patterns:
+            entities.update(re.findall(pattern, text, re.IGNORECASE))
+
+        # 5. Geldbeträge
+        entities.update(re.findall(r'[\$€£]\s?\d+(?:[.,]\d+)?(?:\s?(?:million|billion))?', text, re.IGNORECASE))
+
+        # 6. E-Mails und URLs
+        entities.update(re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text))
+        entities.update(re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text))
+
+        # Filtere Stopwörter
+        stopwords = {'The', 'This', 'That', 'These', 'Der', 'Die', 'Das'}
+        return [e for e in entities if len(str(e)) > 2 and e not in stopwords][:20]
 
     def _extract_concepts(self, text: str) -> List[str]:
-        """Extrahiert Konzepte (vereinfacht)."""
-        # Keywords basierend auf Häufigkeit
-        words = text.lower().split()
-        word_count = {}
-        for w in words:
-            if len(w) > 4:
-                word_count[w] = word_count.get(w, 0) + 1
-        sorted_words = sorted(word_count.items(), key=lambda x: x[1], reverse=True)
-        return [w for w, _ in sorted_words[:10]]
+        """
+        Extrahiert Schlüsselkonzepte mit TF-basierter Gewichtung.
+        """
+        import re
+
+        stopwords = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'it', 'its', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she',
+            'der', 'die', 'das', 'ein', 'eine', 'und', 'oder', 'aber', 'mit', 'von'
+        }
+
+        words = re.findall(r'\b[a-zA-ZäöüÄÖÜß]{4,}\b', text.lower())
+        words = [w for w in words if w not in stopwords]
+
+        # Term-Frequenz
+        tf = {}
+        for word in words:
+            tf[word] = tf.get(word, 0) + 1
+
+        # Bigrams
+        bigram_tf = {}
+        for i in range(len(words) - 1):
+            bigram = f"{words[i]} {words[i+1]}"
+            bigram_tf[bigram] = bigram_tf.get(bigram, 0) + 1
+
+        concepts = [w for w, _ in sorted(tf.items(), key=lambda x: x[1], reverse=True)[:12]]
+        concepts.extend([b for b, c in sorted(bigram_tf.items(), key=lambda x: x[1], reverse=True)[:3] if c >= 2])
+
+        return concepts[:15]
 
     def _analyze_sentiment(self, text: str) -> str:
-        """Analysiert Sentiment (vereinfacht)."""
-        positive_words = {"good", "great", "excellent", "amazing", "wonderful", "happy", "love"}
-        negative_words = {"bad", "terrible", "awful", "horrible", "sad", "hate", "angry"}
+        """
+        Analysiert Sentiment mit erweiterten Lexika und Negationserkennung.
+        """
+        import re
 
-        text_lower = text.lower()
-        pos_count = sum(1 for w in positive_words if w in text_lower)
-        neg_count = sum(1 for w in negative_words if w in text_lower)
+        positive = {
+            'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic',
+            'awesome', 'brilliant', 'superb', 'perfect', 'happy', 'love',
+            'success', 'positive', 'better', 'helpful', 'useful',
+            'gut', 'toll', 'super', 'wunderbar', 'perfekt', 'glücklich', 'erfolg'
+        }
+        negative = {
+            'bad', 'terrible', 'awful', 'horrible', 'poor', 'worst', 'wrong',
+            'sad', 'hate', 'angry', 'disappointed', 'fail', 'problem', 'error',
+            'schlecht', 'schrecklich', 'falsch', 'traurig', 'fehler', 'problem'
+        }
+        negations = {'not', 'no', "n't", 'never', 'nicht', 'kein', 'keine'}
 
-        if pos_count > neg_count:
+        words = re.findall(r'\b\w+\b', text.lower())
+        pos_score, neg_score = 0, 0
+        negated = False
+
+        for i, word in enumerate(words):
+            if word in negations:
+                negated = True
+                continue
+
+            if negated and i > 0 and i >= 3:
+                negated = False
+
+            if word in positive:
+                neg_score += 1 if negated else 0
+                pos_score += 0 if negated else 1
+            elif word in negative:
+                pos_score += 1 if negated else 0
+                neg_score += 0 if negated else 1
+
+        if pos_score > neg_score * 1.2:
             return "positive"
-        elif neg_count > pos_count:
+        elif neg_score > pos_score * 1.2:
             return "negative"
+        elif pos_score > 0 and neg_score > 0:
+            return "mixed"
         return "neutral"
 
     async def generate(self, prompt: str, **kwargs) -> str:
@@ -260,9 +355,66 @@ class ImageProcessor(ModalityProcessor):
         return f"Image analysis: A picture related to {prompt[:50]}"
 
     async def _default_generation(self, prompt: str, **kwargs) -> bytes:
-        """Standard Generation Callback."""
-        # Platzhalter - gibt leeres 1x1 PNG zurück
-        return b'\x89PNG\r\n\x1a\n'
+        """
+        Standard Generation Callback - Generiert einfaches Bild.
+
+        Erstellt ein generatives Bild basierend auf dem Prompt.
+        Unterstützt width, height, color_mode Parameter.
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import io
+            import hashlib
+
+            width = kwargs.get('width', 512)
+            height = kwargs.get('height', 512)
+
+            # Hash des Prompts für konsistente Farben
+            prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
+
+            # Farben aus Hash generieren
+            r = int(prompt_hash[:2], 16)
+            g = int(prompt_hash[2:4], 16)
+            b = int(prompt_hash[4:6], 16)
+
+            # Gradient-Bild erstellen
+            img = Image.new('RGB', (width, height), (r, g, b))
+            draw = ImageDraw.Draw(img)
+
+            # Gradient-Effekt
+            for y in range(height):
+                factor = y / height
+                line_r = int(r * (1 - factor) + 128 * factor)
+                line_g = int(g * (1 - factor) + 128 * factor)
+                line_b = int(b * (1 - factor) + 200 * factor)
+                draw.line([(0, y), (width, y)], fill=(line_r, line_g, line_b))
+
+            # Text hinzufügen
+            try:
+                font = ImageFont.load_default()
+            except Exception:
+                font = None
+
+            # Prompt-Text zentriert
+            text = prompt[:50] + "..." if len(prompt) > 50 else prompt
+            if font:
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+                x = (width - text_width) // 2
+                y = (height - text_height) // 2
+                # Schatten
+                draw.text((x+1, y+1), text, fill=(0, 0, 0), font=font)
+                draw.text((x, y), text, fill=(255, 255, 255), font=font)
+
+            # Zu PNG Bytes
+            output = io.BytesIO()
+            img.save(output, format='PNG')
+            return output.getvalue()
+
+        except ImportError:
+            # Fallback: Minimal gültiges PNG
+            return b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x00\x03\x00\x01\x00\x05\xfe\xd4\x00\x00\x00\x00IEND\xaeB`\x82'
 
     async def understand(self, image: bytes) -> Understanding:
         """Analysiert und versteht ein Bild."""
@@ -302,17 +454,138 @@ class ImageProcessor(ModalityProcessor):
         return await self.vision_callback(image, prompt)
 
     async def edit(self, image: bytes, instruction: str) -> bytes:
-        """Bearbeitet ein Bild nach Anweisung."""
-        # In echter Implementierung würde man Inpainting verwenden
-        return image  # Platzhalter
+        """
+        Bearbeitet ein Bild nach Anweisung.
+
+        Unterstützte Instruktionen:
+        - "rotate:90" - Rotation um Grad
+        - "resize:800x600" - Größenänderung
+        - "grayscale" - Graustufen
+        - "blur:5" - Weichzeichnen
+        - "sharpen" - Schärfen
+        - "contrast:1.5" - Kontrast anpassen
+        - "brightness:1.2" - Helligkeit anpassen
+        - "flip:horizontal/vertical" - Spiegeln
+        - "crop:x,y,w,h" - Zuschneiden
+        """
+        try:
+            from PIL import Image, ImageFilter, ImageEnhance
+            import io
+
+            # Bild laden
+            img = Image.open(io.BytesIO(image))
+
+            # Instruktion parsen
+            instruction = instruction.lower().strip()
+
+            if instruction.startswith("rotate:"):
+                angle = int(instruction.split(":")[1])
+                img = img.rotate(angle, expand=True)
+
+            elif instruction.startswith("resize:"):
+                size_str = instruction.split(":")[1]
+                w, h = map(int, size_str.split("x"))
+                img = img.resize((w, h), Image.Resampling.LANCZOS)
+
+            elif instruction == "grayscale":
+                img = img.convert("L").convert("RGB")
+
+            elif instruction.startswith("blur:"):
+                radius = float(instruction.split(":")[1])
+                img = img.filter(ImageFilter.GaussianBlur(radius=radius))
+
+            elif instruction == "sharpen":
+                img = img.filter(ImageFilter.SHARPEN)
+
+            elif instruction.startswith("contrast:"):
+                factor = float(instruction.split(":")[1])
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(factor)
+
+            elif instruction.startswith("brightness:"):
+                factor = float(instruction.split(":")[1])
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(factor)
+
+            elif instruction.startswith("flip:"):
+                direction = instruction.split(":")[1]
+                if direction == "horizontal":
+                    img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                elif direction == "vertical":
+                    img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
+            elif instruction.startswith("crop:"):
+                coords = list(map(int, instruction.split(":")[1].split(",")))
+                if len(coords) == 4:
+                    x, y, w, h = coords
+                    img = img.crop((x, y, x + w, y + h))
+
+            # Bild zurück in Bytes
+            output = io.BytesIO()
+            img.save(output, format="PNG")
+            return output.getvalue()
+
+        except ImportError:
+            logger.warning("PIL nicht installiert - Bild unverändert")
+            return image
+        except Exception as e:
+            logger.error(f"Bildbearbeitung fehlgeschlagen: {e}")
+            return image
 
     async def variation(self, image: bytes, count: int = 1) -> List[bytes]:
-        """Erstellt Variationen eines Bildes."""
-        variations = []
-        for _ in range(count):
-            # Platzhalter
-            variations.append(image)
-        return variations
+        """
+        Erstellt Variationen eines Bildes.
+
+        Wendet zufällige Transformationen an:
+        - Leichte Farbänderungen
+        - Kleine Rotationen
+        - Leichte Größenänderungen
+        """
+        try:
+            from PIL import Image, ImageEnhance
+            import io
+            import random
+
+            variations = []
+            img = Image.open(io.BytesIO(image))
+
+            for i in range(count):
+                # Kopie erstellen
+                variant = img.copy()
+
+                # Zufällige Transformationen
+                # Leichte Rotation (-5 bis +5 Grad)
+                angle = random.uniform(-5, 5)
+                variant = variant.rotate(angle, expand=False, fillcolor=(255, 255, 255))
+
+                # Leichte Farbänderung
+                color_factor = random.uniform(0.9, 1.1)
+                enhancer = ImageEnhance.Color(variant)
+                variant = enhancer.enhance(color_factor)
+
+                # Leichte Kontraständerung
+                contrast_factor = random.uniform(0.95, 1.05)
+                enhancer = ImageEnhance.Contrast(variant)
+                variant = enhancer.enhance(contrast_factor)
+
+                # Leichte Helligkeitsänderung
+                brightness_factor = random.uniform(0.95, 1.05)
+                enhancer = ImageEnhance.Brightness(variant)
+                variant = enhancer.enhance(brightness_factor)
+
+                # Zu Bytes konvertieren
+                output = io.BytesIO()
+                variant.save(output, format="PNG")
+                variations.append(output.getvalue())
+
+            return variations
+
+        except ImportError:
+            logger.warning("PIL nicht installiert - Original zurückgegeben")
+            return [image] * count
+        except Exception as e:
+            logger.error(f"Variation fehlgeschlagen: {e}")
+            return [image] * count
 
 
 # ============================================================================
@@ -422,14 +695,141 @@ class VideoProcessor(ModalityProcessor):
         return await self.understanding_callback(video)
 
     async def extract_frames(self, video: bytes, fps: int = 1) -> List[bytes]:
-        """Extrahiert Frames aus Video."""
-        # Platzhalter
-        return []
+        """
+        Extrahiert Frames aus Video.
+
+        Args:
+            video: Video als Bytes
+            fps: Frames pro Sekunde zu extrahieren
+
+        Returns:
+            Liste von Frame-Bildern als PNG-Bytes
+        """
+        try:
+            import cv2
+            import numpy as np
+            import tempfile
+            import os
+            from PIL import Image
+            import io
+
+            # Video temporär speichern
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+                f.write(video)
+                temp_path = f.name
+
+            frames = []
+            cap = cv2.VideoCapture(temp_path)
+
+            try:
+                video_fps = cap.get(cv2.CAP_PROP_FPS)
+                frame_interval = max(1, int(video_fps / fps))
+                frame_count = 0
+
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+
+                    if frame_count % frame_interval == 0:
+                        # BGR zu RGB
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        img = Image.fromarray(frame_rgb)
+
+                        # Zu PNG-Bytes
+                        output = io.BytesIO()
+                        img.save(output, format='PNG')
+                        frames.append(output.getvalue())
+
+                    frame_count += 1
+
+            finally:
+                cap.release()
+                os.unlink(temp_path)
+
+            logger.info(f"Extrahierte {len(frames)} Frames aus Video")
+            return frames
+
+        except ImportError:
+            logger.warning("opencv-python nicht installiert - keine Frame-Extraktion möglich")
+            return []
+        except Exception as e:
+            logger.error(f"Frame-Extraktion fehlgeschlagen: {e}")
+            return []
 
     async def add_audio(self, video: bytes, audio: bytes) -> bytes:
-        """Fügt Audio zu Video hinzu."""
-        # Platzhalter
-        return video
+        """
+        Fügt Audio zu Video hinzu.
+
+        Args:
+            video: Video als Bytes
+            audio: Audio als Bytes (WAV/MP3)
+
+        Returns:
+            Video mit Audio als Bytes
+        """
+        try:
+            from moviepy.editor import VideoFileClip, AudioFileClip
+            import tempfile
+            import os
+
+            # Temporäre Dateien erstellen
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as vf:
+                vf.write(video)
+                video_path = vf.name
+
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as af:
+                af.write(audio)
+                audio_path = af.name
+
+            output_path = tempfile.mktemp(suffix='.mp4')
+
+            try:
+                # Video und Audio laden
+                video_clip = VideoFileClip(video_path)
+                audio_clip = AudioFileClip(audio_path)
+
+                # Audio auf Video-Länge anpassen
+                if audio_clip.duration > video_clip.duration:
+                    audio_clip = audio_clip.subclip(0, video_clip.duration)
+
+                # Audio hinzufügen
+                final_clip = video_clip.set_audio(audio_clip)
+
+                # Speichern
+                final_clip.write_videofile(
+                    output_path,
+                    codec='libx264',
+                    audio_codec='aac',
+                    logger=None
+                )
+
+                # Cleanup
+                video_clip.close()
+                audio_clip.close()
+                final_clip.close()
+
+                # Ergebnis lesen
+                with open(output_path, 'rb') as f:
+                    result = f.read()
+
+                return result
+
+            finally:
+                # Temporäre Dateien löschen
+                for path in [video_path, audio_path, output_path]:
+                    if os.path.exists(path):
+                        try:
+                            os.unlink(path)
+                        except Exception:
+                            pass
+
+        except ImportError:
+            logger.warning("moviepy nicht installiert - Video unverändert")
+            return video
+        except Exception as e:
+            logger.error(f"Audio-Hinzufügung fehlgeschlagen: {e}")
+            return video
 
 
 # ============================================================================
@@ -558,12 +958,68 @@ class ThreeDProcessor(ModalityProcessor):
         return b''  # Empty 3D model
 
     async def understand(self, model: bytes) -> Understanding:
-        """Analysiert 3D-Modell."""
+        """
+        Analysiert 3D-Modell.
+
+        Unterstützte Formate: OBJ, STL, PLY, GLB, GLTF
+        """
+        try:
+            import trimesh
+            import tempfile
+            import os
+
+            # Temporär speichern
+            with tempfile.NamedTemporaryFile(suffix='.obj', delete=False) as f:
+                f.write(model)
+                temp_path = f.name
+
+            try:
+                mesh = trimesh.load(temp_path)
+
+                # Mesh-Statistiken
+                if hasattr(mesh, 'vertices'):
+                    n_vertices = len(mesh.vertices)
+                    n_faces = len(mesh.faces) if hasattr(mesh, 'faces') else 0
+                    bounds = mesh.bounds.tolist() if hasattr(mesh, 'bounds') else []
+                    is_watertight = mesh.is_watertight if hasattr(mesh, 'is_watertight') else False
+                    volume = float(mesh.volume) if hasattr(mesh, 'volume') and mesh.is_watertight else 0
+
+                    description = f"3D Mesh mit {n_vertices} Vertices und {n_faces} Faces. "
+                    if is_watertight:
+                        description += f"Wasserdicht mit Volumen {volume:.2f}. "
+                    description += f"Bounding Box: {bounds}"
+
+                    return Understanding(
+                        description=description,
+                        entities=[
+                            f"vertices:{n_vertices}",
+                            f"faces:{n_faces}",
+                            "watertight" if is_watertight else "open_mesh"
+                        ],
+                        concepts=["3d", "geometry", "mesh"],
+                        confidence=0.9,
+                        metadata={
+                            "vertices": n_vertices,
+                            "faces": n_faces,
+                            "bounds": bounds,
+                            "volume": volume,
+                            "is_watertight": is_watertight
+                        }
+                    )
+
+            finally:
+                os.unlink(temp_path)
+
+        except ImportError:
+            logger.warning("trimesh nicht installiert")
+        except Exception as e:
+            logger.error(f"3D-Analyse fehlgeschlagen: {e}")
+
         return Understanding(
-            description="3D model analysis",
-            entities=["mesh", "vertices", "faces"],
+            description="3D model (Analyse nicht möglich)",
+            entities=["mesh"],
             concepts=["3d", "geometry"],
-            confidence=0.7,
+            confidence=0.5,
         )
 
     async def generate(self, prompt: str, **kwargs) -> bytes:
@@ -571,13 +1027,130 @@ class ThreeDProcessor(ModalityProcessor):
         return await self.generation_callback(prompt)
 
     async def from_image(self, image: bytes) -> bytes:
-        """Erstellt 3D aus Bild."""
-        # Platzhalter - würde Point-E oder ähnlich verwenden
-        return b''
+        """
+        Erstellt 3D aus Bild mittels Tiefenschätzung.
+
+        Generiert ein einfaches Relief-Mesh basierend auf der Tiefenkarte.
+        """
+        try:
+            from PIL import Image
+            import numpy as np
+            import trimesh
+            import io
+
+            # Bild laden
+            img = Image.open(io.BytesIO(image))
+            img_gray = img.convert('L')
+            width, height = img_gray.size
+
+            # Tiefenkarte aus Grauwerten
+            depth = np.array(img_gray, dtype=np.float32) / 255.0
+
+            # Downsampling für Performance
+            scale = max(1, max(width, height) // 200)
+            if scale > 1:
+                new_w, new_h = width // scale, height // scale
+                depth = np.array(img_gray.resize((new_w, new_h), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
+                width, height = new_w, new_h
+
+            # Vertices erstellen
+            vertices = []
+            for y in range(height):
+                for x in range(width):
+                    z = depth[y, x] * 10  # Skalierung für sichtbare Tiefe
+                    vertices.append([x, height - y, z])
+
+            vertices = np.array(vertices)
+
+            # Faces erstellen (Quad-Mesh als Triangles)
+            faces = []
+            for y in range(height - 1):
+                for x in range(width - 1):
+                    i = y * width + x
+                    # Zwei Triangles pro Quad
+                    faces.append([i, i + width, i + 1])
+                    faces.append([i + 1, i + width, i + width + 1])
+
+            faces = np.array(faces)
+
+            # Mesh erstellen
+            mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+            # Als OBJ exportieren
+            obj_data = mesh.export(file_type='obj')
+            return obj_data.encode() if isinstance(obj_data, str) else obj_data
+
+        except ImportError:
+            logger.warning("trimesh oder PIL nicht installiert")
+            return b''
+        except Exception as e:
+            logger.error(f"3D aus Bild fehlgeschlagen: {e}")
+            return b''
 
     async def from_images(self, images: List[bytes]) -> bytes:
-        """Erstellt 3D aus mehreren Bildern."""
-        return b''
+        """
+        Erstellt 3D aus mehreren Bildern (Multi-View Reconstruction).
+
+        Bei nur einem Bild wird from_image verwendet.
+        Bei mehreren Bildern wird versucht, ein einfaches
+        kombiniertes Mesh zu erstellen.
+        """
+        if not images:
+            return b''
+
+        if len(images) == 1:
+            return await self.from_image(images[0])
+
+        try:
+            import numpy as np
+            import trimesh
+
+            # Für jeden View ein Relief erstellen und kombinieren
+            meshes = []
+            for i, img_bytes in enumerate(images[:6]):  # Max 6 Views
+                mesh_bytes = await self.from_image(img_bytes)
+                if mesh_bytes:
+                    try:
+                        import tempfile
+                        import os
+
+                        with tempfile.NamedTemporaryFile(suffix='.obj', delete=False) as f:
+                            f.write(mesh_bytes)
+                            temp_path = f.name
+
+                        mesh = trimesh.load(temp_path)
+                        os.unlink(temp_path)
+
+                        # Mesh um verschiedene Achsen rotieren basierend auf Index
+                        if i == 1:  # Rechte Seite
+                            mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi/2, [0, 1, 0]))
+                        elif i == 2:  # Hinten
+                            mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [0, 1, 0]))
+                        elif i == 3:  # Linke Seite
+                            mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi/2, [0, 1, 0]))
+                        elif i == 4:  # Oben
+                            mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi/2, [1, 0, 0]))
+                        elif i == 5:  # Unten
+                            mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi/2, [1, 0, 0]))
+
+                        meshes.append(mesh)
+                    except Exception:
+                        pass
+
+            if not meshes:
+                return b''
+
+            # Meshes kombinieren
+            combined = trimesh.util.concatenate(meshes)
+            obj_data = combined.export(file_type='obj')
+            return obj_data.encode() if isinstance(obj_data, str) else obj_data
+
+        except ImportError:
+            logger.warning("trimesh nicht installiert")
+            return b''
+        except Exception as e:
+            logger.error(f"Multi-View 3D fehlgeschlagen: {e}")
+            return b''
 
 
 # ============================================================================
@@ -784,9 +1357,104 @@ class UnifiedMultiModal:
         return await self.video.generate(prompt, duration=duration)
 
     async def edit_video(self, video: bytes, instruction: str) -> bytes:
-        """Bearbeitet Video."""
-        # Platzhalter
-        return video
+        """
+        Bearbeitet Video nach Anweisung.
+
+        Unterstützte Instruktionen:
+        - "trim:start,end" - Zuschneiden (Sekunden)
+        - "speed:factor" - Geschwindigkeit (1.5 = 50% schneller)
+        - "reverse" - Rückwärts abspielen
+        - "grayscale" - Schwarz-Weiß
+        - "resize:width,height" - Größe ändern
+        - "rotate:90" - Rotation (Grad, 90/180/270)
+        - "fadein:seconds" - Einblenden
+        - "fadeout:seconds" - Ausblenden
+        - "mirror" - Horizontal spiegeln
+        """
+        try:
+            from moviepy.editor import VideoFileClip
+            import tempfile
+            import os
+
+            # Video temporär speichern
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+                f.write(video)
+                video_path = f.name
+
+            output_path = tempfile.mktemp(suffix='.mp4')
+
+            try:
+                clip = VideoFileClip(video_path)
+
+                # Instruktion parsen
+                instruction = instruction.lower().strip()
+
+                if instruction.startswith("trim:"):
+                    times = instruction.split(":")[1].split(",")
+                    start = float(times[0])
+                    end = float(times[1]) if len(times) > 1 else clip.duration
+                    clip = clip.subclip(start, min(end, clip.duration))
+
+                elif instruction.startswith("speed:"):
+                    factor = float(instruction.split(":")[1])
+                    clip = clip.speedx(factor)
+
+                elif instruction == "reverse":
+                    clip = clip.fx(lambda c: c.fl_time(lambda t: clip.duration - t, apply_to=['video', 'audio']))
+
+                elif instruction == "grayscale":
+                    clip = clip.fx(lambda c: c.fl_image(lambda frame: frame.mean(axis=2, keepdims=True).repeat(3, axis=2).astype('uint8')))
+
+                elif instruction.startswith("resize:"):
+                    size_str = instruction.split(":")[1]
+                    w, h = map(int, size_str.split(","))
+                    clip = clip.resize((w, h))
+
+                elif instruction.startswith("rotate:"):
+                    angle = int(instruction.split(":")[1])
+                    clip = clip.rotate(angle)
+
+                elif instruction.startswith("fadein:"):
+                    duration = float(instruction.split(":")[1])
+                    clip = clip.fadein(duration)
+
+                elif instruction.startswith("fadeout:"):
+                    duration = float(instruction.split(":")[1])
+                    clip = clip.fadeout(duration)
+
+                elif instruction == "mirror":
+                    clip = clip.fx(lambda c: c.fl_image(lambda frame: frame[:, ::-1]))
+
+                # Speichern
+                clip.write_videofile(
+                    output_path,
+                    codec='libx264',
+                    audio_codec='aac',
+                    logger=None
+                )
+
+                clip.close()
+
+                # Ergebnis lesen
+                with open(output_path, 'rb') as f:
+                    result = f.read()
+
+                return result
+
+            finally:
+                for path in [video_path, output_path]:
+                    if os.path.exists(path):
+                        try:
+                            os.unlink(path)
+                        except Exception:
+                            pass
+
+        except ImportError:
+            logger.warning("moviepy nicht installiert - Video unverändert")
+            return video
+        except Exception as e:
+            logger.error(f"Video-Bearbeitung fehlgeschlagen: {e}")
+            return video
 
     # ========================================================================
     # CODE OPERATIONS

@@ -33,6 +33,38 @@ def capabilities_stats():
         return jsonify({'error': str(e)}), 500
 
 
+@caps_bp.route('/tools', methods=['GET'])
+def list_tools():
+    """Gibt alle verfuegbaren Tools zurueck"""
+    try:
+        from backend.capabilities import get_capability_engine
+        engine = get_capability_engine()
+
+        # Query-Parameter
+        category = request.args.get('category')
+        search = request.args.get('search')
+        limit = request.args.get('limit', 100, type=int)
+
+        tools = engine.get_all_tools()
+
+        # Filter nach Kategorie
+        if category:
+            tools = [t for t in tools if t.get('category') == category]
+
+        # Suche
+        if search:
+            search = search.lower()
+            tools = [t for t in tools if search in t.get('name', '').lower() or search in t.get('description', '').lower()]
+
+        return jsonify({
+            'tools': tools[:limit],
+            'total': len(tools),
+            'limit': limit
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @caps_bp.route('/search', methods=['POST'])
 def capabilities_search():
     """Sucht nach passenden Tools"""

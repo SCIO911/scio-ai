@@ -145,7 +145,7 @@ class ExecutionContext:
             return self._get_reference_value(match.group(1))
 
         # Sonst ersetze alle Referenzen im String
-        def replace(m):
+        def replace(m: re.Match[str]) -> str:
             val = self._get_reference_value(m.group(1))
             return str(val) if val is not None else ""
 
@@ -635,7 +635,7 @@ class ExecutionEngine:
             ast.NotIn: lambda a, b: a not in b,
         }
 
-        def safe_eval(node):
+        def safe_eval(node: ast.AST) -> Any:
             """Rekursive sichere Evaluation."""
             if isinstance(node, ast.Expression):
                 return safe_eval(node.body)

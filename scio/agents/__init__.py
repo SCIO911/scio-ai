@@ -12,6 +12,11 @@ from scio.agents.builtin import (
     LLMAgent,
     PythonExpertAgent,
 )
+from scio.agents.finance_advisor import (
+    FinanceAdvisor,
+    FinanceAdvice,
+    AdvisorTopic,
+)
 
 __all__ = [
     "Agent",
@@ -25,4 +30,8 @@ __all__ = [
     "TransformerAgent",
     "LLMAgent",
     "PythonExpertAgent",
+    # Finance
+    "FinanceAdvisor",
+    "FinanceAdvice",
+    "AdvisorTopic",
 ]

@@ -46,6 +46,26 @@ class StepStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class WorkflowError(Exception):
+    """Base exception for workflow errors"""
+    pass
+
+
+class WorkflowToolError(WorkflowError):
+    """Error during tool execution in workflow"""
+    pass
+
+
+class WorkflowJobError(WorkflowError):
+    """Error during job execution in workflow"""
+    pass
+
+
+class WorkflowTimeoutError(WorkflowError):
+    """Job or step timed out"""
+    pass
+
+
 @dataclass
 class WorkflowStep:
     """Ein Schritt in einem Workflow"""
@@ -634,7 +654,7 @@ class WorkflowEngine:
         result = registry.execute(tool_id, params)
 
         if "error" in result:
-            raise Exception(result["error"])
+            raise WorkflowToolError(result["error"])
 
         return result
 
@@ -657,11 +677,11 @@ class WorkflowEngine:
             job = queue.get_job(job_id)
             if job and job.status in ["completed", "failed"]:
                 if job.status == "failed":
-                    raise Exception(job.error or "Job failed")
+                    raise WorkflowJobError(job.error or "Job failed")
                 return {"job_id": job_id, "result": job.result}
             time.sleep(1)
 
-        raise Exception("Job timeout")
+        raise WorkflowTimeoutError("Job timeout")
 
     def _handle_condition(self, workflow: Workflow, step: WorkflowStep) -> Dict:
         """Prüft Bedingung (sicher ohne eval)"""

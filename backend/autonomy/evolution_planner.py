@@ -30,6 +30,26 @@ class EvolutionStatus(str, Enum):
     ROLLED_BACK = "rolled_back"
 
 
+class EvolutionError(Exception):
+    """Base exception for evolution errors"""
+    pass
+
+
+class CodeGenerationError(EvolutionError):
+    """Error during code generation"""
+    pass
+
+
+class TestFailureError(EvolutionError):
+    """Tests failed during evolution"""
+    pass
+
+
+class DeploymentError(EvolutionError):
+    """Error during deployment"""
+    pass
+
+
 @dataclass
 class EvolutionPlan:
     """Ein Evolutions-Plan"""
@@ -295,7 +315,7 @@ class EvolutionPlanner:
             generated = self.code_generator.generate_capability(plan.capability, cap_info)
 
             if not generated:
-                raise Exception("Code generation failed - no output")
+                raise CodeGenerationError("Code generation failed - no output")
 
             plan.generated_files.append(generated.file_path)
 
@@ -316,7 +336,7 @@ class EvolutionPlanner:
 
             if not test_result.can_deploy:
                 failed_tests = [r.name for r in test_result.results if r.status.value == "failed"]
-                raise Exception(f"Tests failed: {failed_tests}")
+                raise TestFailureError(f"Tests failed: {failed_tests}")
 
             # Step 3: Create Backup
             from backend.config import Config
@@ -336,7 +356,7 @@ class EvolutionPlanner:
             success = self.code_generator.save_generated(generated, backup=False)
 
             if not success:
-                raise Exception("Failed to save generated code")
+                raise DeploymentError("Failed to save generated code")
 
             # Step 5: Mark as completed
             plan.status = EvolutionStatus.COMPLETED

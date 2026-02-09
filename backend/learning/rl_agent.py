@@ -450,6 +450,10 @@ class RLAgent:
 
         return policy
 
+    def save_state(self):
+        """Alias für save_model (für Graceful Shutdown)"""
+        self.save_model()
+
 
 # Singleton
 _rl_agent: Optional[RLAgent] = None

@@ -491,13 +491,16 @@ class Planner:
                 step.started_at = datetime.now()
 
                 try:
-                    # Executor aufrufen wenn vorhanden
+                    # Executor aufrufen - muss registriert sein
                     if step.action in self.action_executors:
                         executor = self.action_executors[step.action]
                         step.result = executor(step.params)
                     else:
-                        # Simuliere Ausführung
-                        step.result = {"simulated": True, "action": step.action}
+                        # Kein Executor registriert - Fehler werfen statt simulieren
+                        raise NotImplementedError(
+                            f"Kein Executor für Action '{step.action}' registriert. "
+                            f"Registriere mit register_action_executor('{step.action}', executor_func)"
+                        )
 
                     step.status = PlanStatus.COMPLETED
                     step.completed_at = datetime.now()
