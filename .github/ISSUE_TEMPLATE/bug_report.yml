@@ -1,0 +1,95 @@
+name: Bug Report
+description: Melde einen Fehler in SCIO
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke, dass du dir die Zeit nimmst, einen Bug zu melden!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung
+      description: Eine klare Beschreibung des Bugs
+      placeholder: Was ist passiert?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zur Reproduktion
+      description: Wie kann der Bug reproduziert werden?
+      placeholder: |
+        1. Gehe zu '...'
+        2. Klicke auf '...'
+        3. Scrolle zu '...'
+        4. Fehler erscheint
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+      description: Was hast du erwartet?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Tatsächliches Verhalten
+      description: Was ist stattdessen passiert?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Komponente
+      description: Welche Komponente ist betroffen?
+      options:
+        - SCIO Core
+        - Consciousness Module
+        - Mega Upgrade
+        - Backend API
+        - Frontend
+        - Hardware/GPU
+        - Andere
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Umgebung
+      description: System-Informationen
+      placeholder: |
+        - OS: Windows 11
+        - Python: 3.11
+        - PyTorch: 2.0
+        - GPU: RTX 4090
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Fehlermeldungen
+      description: Relevante Logs oder Fehlermeldungen
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checkliste
+      options:
+        - label: Ich habe nach ähnlichen Issues gesucht
+          required: true
+        - label: Ich verwende die neueste Version
+          required: false

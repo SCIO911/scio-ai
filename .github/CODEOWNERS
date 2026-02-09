@@ -1,0 +1,25 @@
+# SCIO Code Owners
+# Diese Datei definiert, wer für welche Teile des Codes verantwortlich ist
+
+# Global - Standard-Owner für alles
+* @SCIO911
+
+# Core Module
+/scio/core/ @SCIO911
+/scio/consciousness/ @SCIO911
+/scio/mega_upgrade/ @SCIO911
+
+# Backend
+/backend/ @SCIO911
+
+# Frontend
+/frontend/ @SCIO911
+
+# Infrastructure & CI/CD
+/.github/ @SCIO911
+/Dockerfile @SCIO911
+/docker-compose*.yml @SCIO911
+
+# Documentation
+/*.md @SCIO911
+/docs/ @SCIO911

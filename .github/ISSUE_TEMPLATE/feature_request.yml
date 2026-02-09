@@ -1,0 +1,77 @@
+name: Feature Request
+description: Schlage ein neues Feature für SCIO vor
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deinen Feature-Vorschlag!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: Welches Problem soll gelöst werden?
+      placeholder: Ich bin frustriert, wenn...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Vorgeschlagene Lösung
+      description: Wie stellst du dir die Lösung vor?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen
+      description: Welche Alternativen hast du in Betracht gezogen?
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Komponente
+      description: Welche Komponente wäre betroffen?
+      options:
+        - SCIO Core
+        - Consciousness Module
+        - Mega Upgrade
+        - Backend API
+        - Frontend
+        - Hardware/GPU
+        - Neue Komponente
+        - Andere
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priorität
+      description: Wie wichtig ist dieses Feature?
+      options:
+        - Nice to have
+        - Wichtig
+        - Kritisch
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Zusätzlicher Kontext
+      description: Screenshots, Links oder weitere Informationen
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Beitrag
+      options:
+        - label: Ich bin bereit, bei der Implementierung zu helfen
+          required: false
