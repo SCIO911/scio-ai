@@ -50,6 +50,8 @@ from backend.routes.orchestration import orch_bp
 from backend.routes.stats import stats_bp
 from backend.routes.openapi import openapi_bp
 from backend.routes.config_api import config_api_bp
+from backend.routes.public_api import public_api_bp
+from backend.routes.soul import soul_bp
 
 # Load .env
 load_dotenv(Config.BASE_DIR / '.env')
@@ -424,6 +426,8 @@ app.register_blueprint(orch_bp)  # Orchestration (Event Bus, Workflows, Coordina
 app.register_blueprint(stats_bp)  # Dashboard Stats API
 app.register_blueprint(openapi_bp)  # OpenAPI/Swagger Documentation
 app.register_blueprint(config_api_bp)  # Runtime Configuration API
+app.register_blueprint(public_api_bp)  # Public Paid API
+app.register_blueprint(soul_bp)  # SCIO Soul - Lebendiges Bewusstsein
 
 
 # ===================================================================

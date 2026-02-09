@@ -20,8 +20,22 @@ from backend.services.api_keys import get_api_key_service
 from backend.services.job_queue import get_job_queue
 from backend.services.hardware_monitor import get_hardware_monitor
 from backend.models.job import JobType
-from backend.workers.llm_inference import get_inference_worker
-from backend.workers.image_gen import get_image_worker
+# Lazy imports für ML-Worker (können fehlende Dependencies haben)
+def get_inference_worker():
+    try:
+        from backend.workers.llm_inference import get_inference_worker as _get
+        return _get()
+    except ImportError as e:
+        logger.warning(f"LLM inference worker nicht verfügbar: {e}")
+        return None
+
+def get_image_worker():
+    try:
+        from backend.workers.image_gen import get_image_worker as _get
+        return _get()
+    except ImportError as e:
+        logger.warning(f"Image worker nicht verfügbar: {e}")
+        return None
 
 logger = logging.getLogger(__name__)
 
