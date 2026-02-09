@@ -53,6 +53,9 @@ def get_dashboard_stats():
     # ─── Health Status ────────────────────────────────────────────────
     stats["health"] = _get_health_status()
 
+    # ─── Money Maker Stats ──────────────────────────────────────────────
+    stats["earnings"] = _get_earnings_stats()
+
     return jsonify(stats)
 
 
@@ -84,6 +87,16 @@ def get_ai_stats():
 def get_health_stats():
     """Health Status aller Module"""
     return jsonify(_get_health_status())
+
+
+@stats_bp.route('/earnings', methods=['GET'])
+def get_earnings_stats_endpoint():
+    """
+    Earnings Statistiken (MoneyMaker)
+
+    Zeigt automatische Einnahmen durch GPU-Vermietung.
+    """
+    return jsonify(_get_earnings_stats())
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -123,20 +136,24 @@ def _get_hardware_stats() -> Dict[str, Any]:
             gpus.append({
                 "index": gpu.index,
                 "name": gpu.name,
-                "vram_used_gb": round(gpu.memory_used / 1024, 2),
-                "vram_total_gb": round(gpu.memory_total / 1024, 2),
-                "vram_percent": round(gpu.memory_used / max(gpu.memory_total, 1) * 100, 1),
-                "utilization_percent": gpu.utilization,
+                "vram_used_gb": round(gpu.vram_used_mb / 1024, 2),
+                "vram_total_gb": round(gpu.vram_total_mb / 1024, 2),
+                "vram_percent": round(gpu.vram_usage_percent, 1),
+                "utilization_percent": gpu.gpu_utilization,
                 "temperature_c": gpu.temperature,
             })
+
+        cpu_percent = status.cpu.usage_percent if status.cpu else 0
+        ram_used = status.ram.used_gb if status.ram else 0
+        ram_total = status.ram.total_gb if status.ram else 1
 
         return {
             "gpus": gpus,
             "gpu_count": len(gpus),
-            "cpu_usage_percent": round(status.cpu_percent, 1),
-            "ram_used_gb": round(status.ram_used, 2),
-            "ram_total_gb": round(status.ram_total, 2),
-            "ram_percent": round(status.ram_used / max(status.ram_total, 1) * 100, 1),
+            "cpu_usage_percent": round(cpu_percent, 1),
+            "ram_used_gb": round(ram_used, 2),
+            "ram_total_gb": round(ram_total, 2),
+            "ram_percent": round(ram_used / max(ram_total, 1) * 100, 1),
             "is_busy": status.is_busy,
         }
     except Exception as e:
@@ -286,6 +303,31 @@ def _get_health_status() -> Dict[str, Any]:
         }
     except Exception as e:
         return {"error": str(e), "overall": "unknown"}
+
+
+def _get_earnings_stats() -> Dict[str, Any]:
+    """Sammelt Earnings Statistiken vom MoneyMaker"""
+    try:
+        from backend.automation.money_maker import get_money_maker
+        money_maker = get_money_maker()
+        stats = money_maker.get_stats()
+
+        return {
+            "total_earnings_usd": round(stats.total_earnings_usd, 2),
+            "today_usd": round(stats.today_earnings_usd, 2),
+            "this_week_usd": round(stats.this_week_earnings_usd, 2),
+            "this_month_usd": round(stats.this_month_earnings_usd, 2),
+            "current_hourly_rate": round(stats.current_hourly_rate, 2),
+            "estimated_daily_usd": round(stats.estimated_daily, 2),
+            "estimated_monthly_usd": round(stats.estimated_monthly, 2),
+            "uptime_hours": round(stats.uptime_hours, 1),
+            "gpu_rental_hours": round(stats.gpu_rental_hours, 1),
+            "jobs_processed": stats.jobs_processed,
+            "last_earning": stats.last_earning_event.isoformat() if stats.last_earning_event else None,
+            "status": "active",
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "unavailable"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

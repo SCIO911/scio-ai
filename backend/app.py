@@ -436,6 +436,12 @@ def index():
     return send_from_directory('../frontend', 'index.html')
 
 
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """Serve static files from frontend folder"""
+    return send_from_directory('../frontend', filename)
+
+
 @app.route('/docs')
 def docs():
     """API Documentation"""
@@ -994,6 +1000,14 @@ def _init_automation_services():
     except Exception as e:
         startup_logger.warning(f"AutoWorker Fehler: {e}")
 
+    # Money Maker - Automatisches Geldverdienen
+    try:
+        from backend.automation.money_maker import get_money_maker
+        money_maker = get_money_maker()
+        money_maker.start()
+    except Exception as e:
+        startup_logger.warning(f"MoneyMaker Fehler: {e}")
+
     # Startup Notification
     try:
         from backend.automation.notifications import get_notification_service
@@ -1224,6 +1238,13 @@ def print_banner():
     print("   [OK] Automatische Health-Checks")
     print("   [OK] Automatische Earnings-Reports")
     print("   [OK] Auto-Recovery bei Fehlern")
+
+    print("\n[MONEY] MONEY MAKER - AUTOMATISCHES GELDVERDIENEN:")
+    print("   [OK] Vast.ai GPU-Vermietung (HOST-ONLY)")
+    print("   [OK] Automatische Preisoptimierung")
+    print("   [OK] Echtzeit Earnings-Tracking")
+    print("   [OK] Intelligente Ressourcen-Allokation")
+    print("   [OK] Taegliche Earnings-Reports")
     print("=" * 70)
     print("\n[BRAIN] AUTONOMIE-SYSTEM:")
     print("   [OK] Self-Awareness - Codebase-Analyse")
